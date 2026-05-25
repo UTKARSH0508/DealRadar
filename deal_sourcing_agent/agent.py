@@ -8,6 +8,7 @@ import smtplib
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
+from smtplib import SMTPAuthenticationError
 from pathlib import Path
 from typing import Any
 
@@ -184,9 +185,16 @@ def send_email(subject: str, markdown_body: str, recipient: str, attachment_path
 
     host = os.environ["SMTP_HOST"]
     port = int(os.environ["SMTP_PORT"])
+    password = os.environ["SMTP_PASSWORD"].replace(" ", "")
     with smtplib.SMTP(host, port, timeout=30) as smtp:
         smtp.starttls()
-        smtp.login(os.environ["SMTP_USERNAME"], os.environ["SMTP_PASSWORD"])
+        try:
+            smtp.login(os.environ["SMTP_USERNAME"], password)
+        except SMTPAuthenticationError as exc:
+            raise RuntimeError(
+                "Gmail rejected SMTP login. Set the GitHub secret SMTP_PASSWORD to a Gmail App Password "
+                "for SMTP_USERNAME, not the normal Gmail password."
+            ) from exc
         smtp.send_message(message)
 
 
