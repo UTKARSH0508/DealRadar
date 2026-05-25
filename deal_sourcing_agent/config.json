@@ -1,0 +1,30 @@
+{
+  "target_country": "India",
+  "minimum_valuation_usd": 50000000,
+  "recent_round_days": 120,
+  "assumed_min_dilution": 0.08,
+  "assumed_max_dilution": 0.25,
+  "preferred_rounds": [
+    "Series B",
+    "Series C",
+    "Series D",
+    "Series E",
+    "Series F",
+    "Growth",
+    "Private Equity"
+  ],
+  "excluded_ownership": [
+    "public",
+    "government",
+    "subsidiary of public company"
+  ],
+  "sector_weights": {
+    "AI": 8,
+    "Fintech": 7,
+    "SaaS": 7,
+    "Healthcare": 6,
+    "Climate": 5,
+    "Consumer": 3,
+    "Logistics": 4
+  }
+}
