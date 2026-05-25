@@ -29,11 +29,11 @@ jobs:
         run: python agent.py --email
         env:
           DEAL_AGENT_EMAIL_TO: mehtautkarsh5@gmail.com
-          SMTP_HOST: ${{ secrets.SMTP_HOST }}
-          SMTP_PORT: ${{ secrets.SMTP_PORT }}
-          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_HOST: smtp.gmail.com
+          SMTP_PORT: 587
+          SMTP_USERNAME: mehtautkarsh5@gmail.com
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          SMTP_FROM: mehtautkarsh5@gmail.com
 
       - name: Upload report artifact
         if: always()

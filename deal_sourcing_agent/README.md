@@ -89,14 +89,12 @@ This repository includes `.github/workflows/daily-deal-radar.yml`, which runs ev
 Add these repository secrets in GitHub:
 
 ```text
-SMTP_HOST
-SMTP_PORT
-SMTP_USERNAME
 SMTP_PASSWORD
-SMTP_FROM
 ```
 
 In GitHub, go to **Settings -> Secrets and variables -> Actions -> New repository secret**.
+
+The workflow is preconfigured to use Gmail SMTP from `mehtautkarsh5@gmail.com`; only the Gmail app password should be stored as a secret.
 
 The workflow also uploads the generated Markdown report as a run artifact, so you can inspect the report even if email delivery fails.
 
