@@ -1,6 +1,7 @@
 # India Growth Deal Sourcing Report
 
 As of: 2026-05-25
+Source: sample
 Screen: private Indian companies, latest funding within 120 days, valuation >= $50,000,000
 
 ## NimbleCredit - score 77.4/100

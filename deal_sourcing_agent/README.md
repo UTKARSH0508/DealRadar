@@ -82,6 +82,33 @@ python3 agent.py --email
 
 For a 9 AM daily job, schedule `run_daily.sh` with your scheduler of choice. In production, use a cloud scheduler, GitHub Actions, Airflow, Prefect, Dagster, or a cron job on a small VM.
 
+## Tracxn API Connector
+
+Daily Deal Radar can use Tracxn as the source of truth instead of the sample JSON file:
+
+```bash
+python3 agent.py --source tracxn --email
+```
+
+Required environment variable:
+
+```text
+TRACXN_ACCESS_TOKEN
+```
+
+Optional Tracxn settings:
+
+```text
+TRACXN_API_BASE_URL=https://platform.tracxn.com/api/2.2
+TRACXN_TRANSACTIONS_PATH=/transactions
+TRACXN_MAX_RESULTS=20
+TRACXN_PAYLOAD_FILE=/path/to/custom_payload.json
+```
+
+The default connector posts a conservative India/private/recent-funding payload to the configured transactions endpoint, writes the raw API response to `output/tracxn_raw_response.json`, normalizes records into the DealRadar schema, and then runs the same valuation and scoring filters.
+
+Because Tracxn field names and endpoint permissions can vary by account, use `TRACXN_PAYLOAD_FILE` or `TRACXN_TRANSACTIONS_PATH` if Tracxn gives you a specific endpoint contract.
+
 ## GitHub Actions Setup
 
 This repository includes `.github/workflows/daily-deal-radar.yml`, which runs every day at 9:00 AM Asia/Kolkata and can also be triggered manually from the GitHub Actions tab.
@@ -89,6 +116,7 @@ This repository includes `.github/workflows/daily-deal-radar.yml`, which runs ev
 Add these repository secrets in GitHub:
 
 ```text
+TRACXN_ACCESS_TOKEN
 SMTP_PASSWORD
 ```
 

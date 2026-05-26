@@ -26,9 +26,10 @@ jobs:
         run: python -m py_compile agent.py
 
       - name: Run Daily Deal Radar
-        run: python agent.py --email
+        run: python agent.py --source tracxn --email
         env:
           DEAL_AGENT_EMAIL_TO: mehtautkarsh5@gmail.com
+          TRACXN_ACCESS_TOKEN: ${{ secrets.TRACXN_ACCESS_TOKEN }}
           SMTP_HOST: smtp.gmail.com
           SMTP_PORT: 587
           SMTP_USERNAME: mehtautkarsh5@gmail.com
