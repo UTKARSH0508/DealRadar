@@ -5,15 +5,12 @@ import argparse
 import json
 import os
 import smtplib
-import sys
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from email.message import EmailMessage
 from smtplib import SMTPAuthenticationError
 from pathlib import Path
 from typing import Any
-
-from tracxn_connector import fetch_tracxn_companies
 
 
 @dataclass
@@ -206,30 +203,20 @@ def main() -> None:
     parser.add_argument("--config", default="config.json", type=Path)
     parser.add_argument("--input", default="data/sample_companies.json", type=Path)
     parser.add_argument("--output", default="output/deal_sourcing_report.md", type=Path)
-    parser.add_argument("--source", choices=["sample", "tracxn"], default="sample")
-    parser.add_argument("--tracxn-raw-output", default="output/tracxn_raw_response.json", type=Path)
     parser.add_argument("--as-of", default=date.today().isoformat())
     parser.add_argument("--email-to", default=os.environ.get("DEAL_AGENT_EMAIL_TO"))
     parser.add_argument("--email", action="store_true", help="Send the report by email using SMTP_* environment variables.")
     args = parser.parse_args()
 
     config = load_json(args.config)
+    companies = load_json(args.input)
     as_of = parse_date(args.as_of)
-    try:
-        if args.source == "tracxn":
-            companies = fetch_tracxn_companies(config, as_of, args.tracxn_raw_output)
-        else:
-            companies = load_json(args.input)
-    except RuntimeError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
-        raise SystemExit(1) from exc
     candidates = build_candidates(companies, config, as_of)
 
     body = [
         "# India Growth Deal Sourcing Report",
         "",
         f"As of: {as_of.isoformat()}",
-        f"Source: {args.source}",
         f"Screen: private Indian companies, latest funding within {config['recent_round_days']} days, valuation >= ${config['minimum_valuation_usd']:,.0f}",
         "",
     ]
@@ -247,11 +234,7 @@ def main() -> None:
         if not args.email_to:
             raise RuntimeError("Email delivery requested, but no recipient was provided. Set DEAL_AGENT_EMAIL_TO or pass --email-to.")
         subject = f"India growth deal sourcing: {len(candidates)} candidates - {as_of.isoformat()}"
-        try:
-            send_email(subject, report, args.email_to, args.output)
-        except RuntimeError as exc:
-            print(f"Error: {exc}", file=sys.stderr)
-            raise SystemExit(1) from exc
+        send_email(subject, report, args.email_to, args.output)
         print(f"Sent email report to {args.email_to}")
 
 
