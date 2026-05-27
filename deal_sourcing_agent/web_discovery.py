@@ -120,18 +120,17 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
     return articles
 
 
-def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> str:
-    api_key = os.environ.get("GROQ_API_KEY")
+def _openai_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> str:
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing GROQ_API_KEY. Add it as a GitHub Actions secret.")
-    
-    print(f"[DEBUG] GROQ_API_KEY length: {len(api_key)} characters")
-    print(f"[DEBUG] GROQ_API_KEY starts with: {api_key[:10]}")
-    print(f"[DEBUG] GROQ_API_KEY ends with: {api_key[-10:]}")
-    print(f"[DEBUG] GROQ_API_KEY format check: starts with 'gsk_': {api_key.startswith('gsk_')}")
+        raise RuntimeError("Missing OPENAI_API_KEY. Add it as a GitHub Actions secret.")
 
+    model_name = os.environ.get(
+        "OPENAI_MODEL",
+        config.get("openai_model", "gpt-4o-mini"),
+    )
     body = {
-        "model": os.environ.get("GROQ_MODEL", config.get("groq_model", "mixtral-8x7b-32768")),
+        "model": model_name,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -139,42 +138,26 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
         "temperature": 0,
         "response_format": {"type": "json_object"},
     }
-    
-    model_name = body["model"]
-    print(f"[DEBUG] Using Groq model: {model_name}")
-    
-    json_body = json.dumps(body)
-    print(f"[DEBUG] Request body size: {len(json_body)} bytes")
-    
-    auth_header = f"Bearer {api_key}"
-    print(f"[DEBUG] Authorization header set: {auth_header[:20]}...")
-    
+
+    print(f"[DEBUG] Using OpenAI model: {model_name}")
+
     request = urllib.request.Request(
-        "https://api.groq.com/openai/v1/chat/completions",
-        data=json_body.encode("utf-8"),
+        "https://api.openai.com/v1/chat/completions",
+        data=json.dumps(body).encode("utf-8"),
         method="POST",
         headers={
-            "Authorization": auth_header,
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         },
     )
-    
-    print(f"[DEBUG] Request headers: {dict(request.headers)}")
-    print(f"[DEBUG] Request URL: {request.full_url}")
-    print(f"[DEBUG] Making request to Groq API...")
-    
+
     try:
-        timeout = int(config.get("groq_timeout_seconds", 60))
-        print(f"[DEBUG] Request timeout: {timeout} seconds")
+        timeout = int(config.get("openai_timeout_seconds", 60))
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
-            print(f"[DEBUG] Groq API response received successfully")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        print(f"[DEBUG] Groq API HTTP Error {exc.code}")
-        print(f"[DEBUG] Response headers: {dict(exc.headers)}")
-        print(f"[DEBUG] Error detail: {detail}")
-        raise RuntimeError(f"Groq API returned HTTP {exc.code}: {detail}") from exc
+        raise RuntimeError(f"OpenAI API returned HTTP {exc.code}: {detail}") from exc
     return payload["choices"][0]["message"]["content"]
 
 
@@ -207,12 +190,12 @@ Article text:
 {article.text}
 """
     
-    # Add delay before calling Groq API to respect rate limits
-    print(f"[DEBUG] Waiting 2 seconds before Groq API call...")
+    # Add delay before calling OpenAI API to respect rate limits
+    print(f"[DEBUG] Waiting 2 seconds before OpenAI API call...")
     time.sleep(2)
-    
-    print(f"[DEBUG] Calling Groq API...")
-    content = _groq_chat(system_prompt, user_prompt, config)
+
+    print(f"[DEBUG] Calling OpenAI API...")
+    content = _openai_chat(system_prompt, user_prompt, config)
     parsed = _json_from_text(content)
     deals = parsed.get("deals", [])
     print(f"[DEBUG] Extracted {len(deals)} deals from article")

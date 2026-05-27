@@ -1,13 +1,13 @@
 # Daily Deal Radar
 
-Daily Deal Radar is a GitHub Actions job that searches the web for Indian funding announcements, uses Groq to extract deal facts, filters for reported post-money valuations of INR 300-1000 cr, dedupes previously emailed deals, and sends a concise email report.
+Daily Deal Radar is a GitHub Actions job that searches the web for Indian funding announcements, uses OpenAI to extract deal facts, filters for reported post-money valuations of INR 300-1000 cr, dedupes previously emailed deals, and sends a concise email report.
 
 ## Flow
 
 1. GitHub Actions runs daily at 9:00 AM Asia/Kolkata.
 2. `web_discovery.py` queries GDELT for recent funding-news articles from the past 30 days.
 3. The script fetches article text from each source URL.
-4. Groq extracts structured deal facts from each article.
+4. OpenAI extracts structured deal facts from each article.
 5. `agent.py` keeps only private Indian companies with explicitly reported post-money valuation of INR 300-1000 cr.
 6. Deals already present in `output/seen_deals.json` are suppressed.
 7. The final email shows only company name, brief overview, investors in the round, deal size, post-money valuation, and source.
@@ -22,7 +22,7 @@ No new deals found.
 
 ```bash
 cd /Users/utkarsh/Documents/Codex/2026-05-25/help-me-make-an-agent-which/deal_sourcing_agent
-export GROQ_API_KEY=your-groq-api-key
+export OPENAI_API_KEY=your-openai-api-key
 python3 agent.py
 ```
 
@@ -49,7 +49,7 @@ output/deal_sourcing_report.md
 Add these repository secrets:
 
 ```text
-GROQ_API_KEY
+OPENAI_API_KEY
 SMTP_PASSWORD
 ```
 
@@ -68,7 +68,7 @@ Edit `config.json` for:
 - `minimum_post_money_valuation_inr_cr`: currently 300
 - `maximum_post_money_valuation_inr_cr`: currently 1000
 - `search_queries`: GDELT search queries
-- `groq_model`: Groq model used for extraction
+- `openai_model`: OpenAI model used for extraction (default: `gpt-4o-mini`)
 - `max_articles`: maximum articles inspected per run
 
 ## Important Limitation
