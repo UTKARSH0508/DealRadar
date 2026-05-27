@@ -9,11 +9,9 @@
   "nvidia_model": "meta/llama-3.1-8b-instruct",
   "nvidia_max_tokens": 1024,
   "nvidia_timeout_seconds": 120,
+  "gdelt_delay_seconds": 5,
   "search_queries": [
-    "\"India\" startup funding valuation \"post-money\"",
-    "\"Indian startup\" raised funding valuation",
-    "\"India\" \"post-money valuation\" funding",
-    "\"Indian company\" funding round valuation investors"
+    "\"India\" startup funding valuation"
   ],
   "preferred_rounds": [
     "Series A",

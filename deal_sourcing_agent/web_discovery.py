@@ -46,10 +46,24 @@ class TextExtractor(HTMLParser):
         return " ".join(self.parts)
 
 
-def _get_json(url: str, timeout: int = 30) -> Any:
+def _get_json(url: str, timeout: int = 30, retries: int = 3) -> Any:
     request = urllib.request.Request(url, headers={"User-Agent": "DailyDealRadar/1.0"})
-    with urllib.request.urlopen(request, timeout=timeout) as response:
-        return json.loads(response.read().decode("utf-8"))
+    last_error: Exception | None = None
+    for attempt in range(1, retries + 1):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                return json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            last_error = exc
+            if exc.code == 429 and attempt < retries:
+                wait = 5 * attempt
+                print(f"[DEBUG] GDELT rate limit (429), retrying in {wait}s ({attempt}/{retries})...")
+                time.sleep(wait)
+                continue
+            raise
+    if last_error:
+        raise last_error
+    raise RuntimeError("unreachable")
 
 
 def _get_text(url: str, timeout: int = 30) -> str:
@@ -72,7 +86,11 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
 
     print(f"[DEBUG] Starting article discovery: max_articles={max_articles}, lookback_days={lookback_days}")
 
+    gdelt_delay = float(config.get("gdelt_delay_seconds", 3))
+
     for query in config.get("search_queries", []):
+        if articles:
+            break
         print(f"[DEBUG] Searching for articles with query: {query}")
         params = {
             "query": query,
@@ -115,6 +133,9 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
             if len(articles) >= max_articles:
                 print(f"[DEBUG] Reached max_articles limit ({max_articles})")
                 return articles
+
+        if gdelt_delay > 0:
+            time.sleep(gdelt_delay)
 
     print(f"[DEBUG] Article discovery complete: found {len(articles)} articles")
     return articles
