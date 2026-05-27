@@ -125,10 +125,13 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
     if not api_key:
         raise RuntimeError("Missing GROQ_API_KEY. Add it as a GitHub Actions secret.")
     
-    print(f"[DEBUG] GROQ_API_KEY found: {api_key[:10]}...{api_key[-5:]}")
+    print(f"[DEBUG] GROQ_API_KEY length: {len(api_key)} characters")
+    print(f"[DEBUG] GROQ_API_KEY starts with: {api_key[:10]}")
+    print(f"[DEBUG] GROQ_API_KEY ends with: {api_key[-10:]}")
+    print(f"[DEBUG] GROQ_API_KEY format check: starts with 'gsk_': {api_key.startswith('gsk_')}")
 
     body = {
-        "model": os.environ.get("GROQ_MODEL", config.get("groq_model", "llama-3.3-70b-versatile")),
+        "model": os.environ.get("GROQ_MODEL", config.get("groq_model", "mixtral-8x7b-32768")),
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
@@ -139,17 +142,27 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
     
     model_name = body["model"]
     print(f"[DEBUG] Using Groq model: {model_name}")
-    print(f"[DEBUG] Making request to Groq API...")
+    
+    json_body = json.dumps(body)
+    print(f"[DEBUG] Request body size: {len(json_body)} bytes")
+    
+    auth_header = f"Bearer {api_key}"
+    print(f"[DEBUG] Authorization header set: {auth_header[:20]}...")
     
     request = urllib.request.Request(
         "https://api.groq.com/openai/v1/chat/completions",
-        data=json.dumps(body).encode("utf-8"),
+        data=json_body.encode("utf-8"),
         method="POST",
         headers={
-            "Authorization": f"Bearer {api_key}",
+            "Authorization": auth_header,
             "Content-Type": "application/json",
         },
     )
+    
+    print(f"[DEBUG] Request headers: {dict(request.headers)}")
+    print(f"[DEBUG] Request URL: {request.full_url}")
+    print(f"[DEBUG] Making request to Groq API...")
+    
     try:
         timeout = int(config.get("groq_timeout_seconds", 60))
         print(f"[DEBUG] Request timeout: {timeout} seconds")
@@ -159,6 +172,7 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         print(f"[DEBUG] Groq API HTTP Error {exc.code}")
+        print(f"[DEBUG] Response headers: {dict(exc.headers)}")
         print(f"[DEBUG] Error detail: {detail}")
         raise RuntimeError(f"Groq API returned HTTP {exc.code}: {detail}") from exc
     return payload["choices"][0]["message"]["content"]
