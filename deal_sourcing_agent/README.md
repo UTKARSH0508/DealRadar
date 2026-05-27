@@ -1,69 +1,32 @@
-# Indian Growth Deal Sourcing Agent
+# Daily Deal Radar
 
-This is a starter agent for a late-stage/growth fund looking for Indian private-sector companies that recently raised capital and are valued at $50M+.
+Daily Deal Radar is a GitHub Actions job that searches the web for Indian funding announcements, uses Groq to extract deal facts, filters for reported post-money valuations of INR 300-1000 cr, dedupes previously emailed deals, and sends a concise email report.
 
-## What It Does
+## Flow
 
-The agent screens companies for:
+1. GitHub Actions runs daily at 9:00 AM Asia/Kolkata.
+2. `web_discovery.py` queries GDELT for recent funding-news articles from the past 30 days.
+3. The script fetches article text from each source URL.
+4. Groq extracts structured deal facts from each article.
+5. `agent.py` keeps only private Indian companies with explicitly reported post-money valuation of INR 300-1000 cr.
+6. Deals already present in `output/seen_deals.json` are suppressed.
+7. The final email shows only company name, brief overview, investors in the round, deal size, post-money valuation, and source.
 
-- India-headquartered and private ownership
-- latest funding round inside a configurable recency window
-- reported or conservatively inferred post-money valuation of at least $50M
-- growth-fund fit based on round stage, sector, growth signals, and source quality
+If no qualifying unseen deals are found, the report says:
 
-The output is an investment-sourcing report with ranked candidates, reasons, risks, and diligence questions.
+```text
+No new deals found.
+```
 
-## Recommended Data Sources
-
-Use at least one structured paid data source plus public corroboration:
-
-- Tracxn: funding rounds, VC/PE-backed deals, funded companies, and valuation filters.
-- Venture Intelligence: India-focused PE/VC database with funding, investor, and valuation data.
-- PrivateCircle: India private-market data, company filings, ownership, and API access.
-- Crunchbase or PitchBook: global funding rounds and investor graph.
-- MCA filings, company websites, press releases, LinkedIn hiring, Tracxn/VI/PrivateCircle notes, and news articles for verification.
-
-The prototype uses `data/sample_companies.json` so you can run it offline. Replace that file with normalized records from your chosen source.
-
-## Agent Architecture
-
-1. **Ingestion agent**
-   Pulls new funding rounds daily from data vendors, news/RSS, and press releases.
-
-2. **Entity resolution agent**
-   Deduplicates company names, domains, CINs, founders, and investor names.
-
-3. **Eligibility agent**
-   Applies hard filters: India, private sector, recent round, $50M+ valuation, not public/government-owned.
-
-4. **Valuation agent**
-   Uses reported post-money valuation when available. If valuation is undisclosed, it estimates a conservative lower bound from round size and assumed dilution.
-
-5. **Research agent**
-   Gathers corroborating evidence: company description, traction, financial filings, hiring, customers, investors, founder background, and cap table clues.
-
-6. **Scoring agent**
-   Ranks companies by mandate fit, growth signal strength, round quality, valuation confidence, investor quality, and sourcing urgency.
-
-7. **Memo agent**
-   Produces a concise sourcing note with why-now, key risks, warm-intro paths, and next diligence questions.
-
-## Run the Prototype
+## Run Locally
 
 ```bash
 cd /Users/utkarsh/Documents/Codex/2026-05-25/help-me-make-an-agent-which/deal_sourcing_agent
-python3 agent.py --as-of 2026-05-25
+export GROQ_API_KEY=your-groq-api-key
+python3 agent.py
 ```
 
-The report is written to:
-
-```text
-/Users/utkarsh/Documents/Codex/2026-05-25/help-me-make-an-agent-which/deal_sourcing_agent/output/deal_sourcing_report.md
-```
-
-## Daily Email Setup
-
-The agent can send the report by SMTP. Copy `.env.example` into your scheduler or secret manager and provide real values:
+To send email too:
 
 ```bash
 export DEAL_AGENT_EMAIL_TO=you@example.com
@@ -72,66 +35,42 @@ export SMTP_PORT=587
 export SMTP_USERNAME=you@example.com
 export SMTP_PASSWORD=your-app-password-or-smtp-token
 export SMTP_FROM=you@example.com
-```
-
-Then run:
-
-```bash
 python3 agent.py --email
 ```
 
-For a 9 AM daily job, schedule `run_daily.sh` with your scheduler of choice. In production, use a cloud scheduler, GitHub Actions, Airflow, Prefect, Dagster, or a cron job on a small VM.
+The report is written to:
+
+```text
+output/deal_sourcing_report.md
+```
 
 ## GitHub Actions Setup
 
-This repository includes `.github/workflows/daily-deal-radar.yml`, which runs every day at 9:00 AM Asia/Kolkata and can also be triggered manually from the GitHub Actions tab.
-
-Add these repository secrets in GitHub:
+Add these repository secrets:
 
 ```text
+GROQ_API_KEY
 SMTP_PASSWORD
 ```
 
-In GitHub, go to **Settings -> Secrets and variables -> Actions -> New repository secret**.
+The workflow is preconfigured to:
 
-The workflow is preconfigured to use Gmail SMTP from `mehtautkarsh5@gmail.com`; only the Gmail app password should be stored as a secret.
+- send email to `mehtautkarsh5@gmail.com`
+- use Gmail SMTP from `mehtautkarsh5@gmail.com`
+- run at 9:00 AM Asia/Kolkata
+- commit `output/seen_deals.json` back to the repo after successful runs so old deals are not emailed again
 
-The workflow also uploads the generated Markdown report as a run artifact, so you can inspect the report even if email delivery fails.
+## Configuration
 
-Daily emails are currently addressed to `mehtautkarsh5@gmail.com`.
+Edit `config.json` for:
 
-## Production Notes
+- `recent_round_days`: lookback window, currently 30 days
+- `minimum_post_money_valuation_inr_cr`: currently 300
+- `maximum_post_money_valuation_inr_cr`: currently 1000
+- `search_queries`: GDELT search queries
+- `groq_model`: Groq model used for extraction
+- `max_articles`: maximum articles inspected per run
 
-- Prefer vendor APIs for the first version; scraping should only supplement missing public evidence.
-- Store all raw source documents and timestamps so investment teams can audit each recommendation.
-- Treat inferred valuations as lower-confidence candidates and route them to manual verification.
-- Use a CRM sink such as Affinity, Attio, Salesforce, or Airtable once a company crosses the score threshold.
-- Add weekly digests for the investment team and same-day alerts for large rounds, high-priority sectors, or known investor syndicates.
+## Important Limitation
 
-## Suggested Candidate Schema
-
-```json
-{
-  "name": "Company",
-  "website": "https://example.com",
-  "country": "India",
-  "city": "Bengaluru",
-  "ownership_status": "private",
-  "sector": "Fintech",
-  "description": "What the company does",
-  "latest_round": {
-    "date": "2026-05-12",
-    "type": "Series C",
-    "amount_usd": 22000000,
-    "post_money_valuation_usd": 145000000,
-    "investors": ["Investor A", "Investor B"]
-  },
-  "signals": {
-    "revenue_growth_yoy_pct": 95,
-    "employee_growth_6m_pct": 22,
-    "notable_customers": ["Customer segment"],
-    "founder_background": "Founder context"
-  },
-  "sources": ["press release", "data vendor"]
-}
-```
+This is an internet-discovery workflow, not a paid database. It only includes deals where the fetched article explicitly reports post-money valuation. Coverage will be lower than Tracxn, Venture Intelligence, PrivateCircle, or PitchBook, but it is a good free/low-cost starting point.

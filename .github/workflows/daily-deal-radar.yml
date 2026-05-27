@@ -6,6 +6,9 @@ on:
     - cron: "30 3 * * *"
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   source-deals:
     runs-on: ubuntu-latest
@@ -23,12 +26,13 @@ jobs:
           python-version: "3.11"
 
       - name: Validate agent
-        run: python -m py_compile agent.py
+        run: python -m py_compile agent.py web_discovery.py
 
       - name: Run Daily Deal Radar
         run: python agent.py --email
         env:
           DEAL_AGENT_EMAIL_TO: mehtautkarsh5@gmail.com
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
           SMTP_HOST: smtp.gmail.com
           SMTP_PORT: 587
           SMTP_USERNAME: mehtautkarsh5@gmail.com
@@ -42,3 +46,12 @@ jobs:
           name: daily-deal-radar-report
           path: deal_sourcing_agent/output/deal_sourcing_report.md
           if-no-files-found: ignore
+
+      - name: Persist seen deals
+        if: success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add output/seen_deals.json
+          git diff --cached --quiet || git commit -m "Update seen deals"
+          git push

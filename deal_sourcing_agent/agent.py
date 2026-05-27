@@ -13,6 +13,8 @@ from smtplib import SMTPAuthenticationError
 from pathlib import Path
 from typing import Any
 
+from web_discovery import fetch_web_companies
+
 
 @dataclass
 class Candidate:
@@ -114,23 +116,7 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
 
 
 def score_company(company: dict[str, Any], config: dict[str, Any], valuation_inr_cr: float, reasons: list[str], risks: list[str]) -> float:
-    score = 50.0
-    sector = company.get("sector", "")
-    score += float(config["sector_weights"].get(sector, 0))
-
-    signals = company.get("signals", {})
-    score += min(float(signals.get("revenue_growth_yoy_pct", 0)) / 10, 15)
-    score += min(float(signals.get("employee_growth_6m_pct", 0)) / 5, 8)
-    score += min(valuation_inr_cr / 100, 10)
-
-    if signals.get("notable_customers"):
-        score += 5
-    if "reported post-money" not in " ".join(reasons):
-        score -= 6
-        risks.append("valuation is inferred, not directly reported")
-
-    score -= len(risks) * 3
-    return round(max(0, min(score, 100)), 1)
+    return round(max(0, min(100, 50 + min(valuation_inr_cr / 100, 10) - len(risks) * 3)), 1)
 
 
 def build_candidates(companies: list[dict[str, Any]], config: dict[str, Any], as_of: date) -> list[Candidate]:
@@ -182,6 +168,7 @@ def candidate_to_markdown(candidate: Candidate) -> str:
     round_info = company["latest_round"]
     investors = ", ".join(round_info.get("investors", [])) or "undisclosed"
     deal_size = format_inr_cr(round_amount_inr_cr(company, {"usd_to_inr": 83.0}))
+    sources = ", ".join(company.get("sources", [])) or "not provided"
 
     return f"""## {company['name']}
 
@@ -189,6 +176,7 @@ def candidate_to_markdown(candidate: Candidate) -> str:
 **Investors in round:** {investors}  
 **Deal size:** {deal_size}  
 **Post-money valuation:** {format_inr_cr(candidate.valuation_inr_cr)}  
+**Source:** {sources}  
 """
 
 
@@ -243,7 +231,6 @@ def send_email(subject: str, markdown_body: str, recipient: str, attachment_path
 def main() -> None:
     parser = argparse.ArgumentParser(description="Find Indian private companies with recent funding and INR 300-1000 cr post-money valuation.")
     parser.add_argument("--config", default="config.json", type=Path)
-    parser.add_argument("--input", default="data/sample_companies.json", type=Path)
     parser.add_argument("--output", default="output/deal_sourcing_report.md", type=Path)
     parser.add_argument("--seen-file", default="output/seen_deals.json", type=Path)
     parser.add_argument("--ignore-seen", action="store_true", help="Include deals even if they were already reported before.")
@@ -253,8 +240,12 @@ def main() -> None:
     args = parser.parse_args()
 
     config = load_json(args.config)
-    companies = load_json(args.input)
     as_of = parse_date(args.as_of)
+    try:
+        companies = fetch_web_companies(config, as_of)
+    except RuntimeError as exc:
+        print(f"Error: {exc}")
+        raise SystemExit(1) from exc
     candidates = build_candidates(companies, config, as_of)
     seen = load_seen_deals(args.seen_file)
     new_candidates = candidates if args.ignore_seen else filter_new_candidates(candidates, seen, config)
@@ -276,6 +267,7 @@ def main() -> None:
     args.output.write_text(report, encoding="utf-8")
     if new_candidates and not args.ignore_seen:
         seen.update(deal_key(candidate, config) for candidate in new_candidates)
+    if not args.ignore_seen:
         save_seen_deals(args.seen_file, seen)
     print(f"Wrote {args.output} with {len(new_candidates)} new candidates")
 

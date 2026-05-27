@@ -4,6 +4,15 @@
   "maximum_post_money_valuation_inr_cr": 1000,
   "usd_to_inr": 83.0,
   "recent_round_days": 30,
+  "max_articles": 20,
+  "article_text_chars": 12000,
+  "groq_model": "llama-3.3-70b-versatile",
+  "search_queries": [
+    "\"India\" startup funding valuation \"post-money\"",
+    "\"Indian startup\" raised funding valuation",
+    "\"India\" \"post-money valuation\" funding",
+    "\"Indian company\" funding round valuation investors"
+  ],
   "preferred_rounds": [
     "Series B",
     "Series C",
