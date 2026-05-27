@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -158,7 +159,7 @@ Use only the article text and metadata provided by the user.
 Do not infer missing values.
 Only include deals where the article explicitly reports a post-money valuation.
 Return strict JSON with this schema:
-{"deals":[{"company_name":"","overview":"","country":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"post_money_valuation_inr_cr":null,"investors":[],"source_url":"","source_title":""}]}
+{"deals":[{"company_name":"","overview":"","country":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"post_money_valuation_inr_cr":null,"investors":[],"source_url":""}]}
 If no qualifying deal is explicit in the article, return {"deals":[]}."""
     user_prompt = f"""Article title: {article.title}
 Article URL: {article.url}
@@ -168,6 +169,9 @@ Domain: {article.domain}
 Article text:
 {article.text}
 """
+    # Add delay before calling Groq API to respect rate limits
+    time.sleep(2)
+    
     content = _groq_chat(system_prompt, user_prompt, config)
     parsed = _json_from_text(content)
     deals = parsed.get("deals", [])
