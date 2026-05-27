@@ -100,11 +100,7 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
         risks.append("reported post-money valuation is unavailable")
         return False, reasons, risks, None, basis
 
-    min_valuation = float(config["minimum_post_money_valuation_inr_cr"])
-    max_valuation = float(config["maximum_post_money_valuation_inr_cr"])
-    if valuation < min_valuation or valuation > max_valuation:
-        return False, reasons, risks, valuation, basis
-    reasons.append(f"reported post-money valuation is in the INR {min_valuation:,.0f}-{max_valuation:,.0f} cr band")
+    reasons.append(f"reported post-money valuation: {format_inr_cr(valuation)}")
 
     round_type = company.get("latest_round", {}).get("type")
     if round_type in config["preferred_rounds"]:
@@ -229,7 +225,7 @@ def send_email(subject: str, markdown_body: str, recipient: str, attachment_path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Find Indian private companies with recent funding and INR 300-1000 cr post-money valuation.")
+    parser = argparse.ArgumentParser(description="Find Indian private companies with recent funding deals in the past month.")
     parser.add_argument("--config", default="config.json", type=Path)
     parser.add_argument("--output", default="output/deal_sourcing_report.md", type=Path)
     parser.add_argument("--seen-file", default="output/seen_deals.json", type=Path)
@@ -249,32 +245,37 @@ def main() -> None:
     candidates = build_candidates(companies, config, as_of)
     seen = load_seen_deals(args.seen_file)
     new_candidates = candidates if args.ignore_seen else filter_new_candidates(candidates, seen, config)
+    
+    # Limit to top 5 companies
+    top_5_candidates = new_candidates[:5]
 
     body = [
         "# Daily Deal Radar",
         "",
         f"As of: {as_of.isoformat()}",
-        f"Screen: private Indian companies with funding in the past {config['recent_round_days']} days and reported post-money valuation of INR {config['minimum_post_money_valuation_inr_cr']}-{config['maximum_post_money_valuation_inr_cr']} cr",
+        f"Screen: private Indian companies with funding in the past {config['recent_round_days']} days",
         "",
     ]
-    if not new_candidates:
+    if not top_5_candidates:
         body.append("No new deals found.")
     else:
-        body.extend(candidate_to_markdown(candidate) for candidate in new_candidates)
+        body.append(f"Top {len(top_5_candidates)} deals:")
+        body.append("")
+        body.extend(candidate_to_markdown(candidate) for candidate in top_5_candidates)
 
     report = "\n".join(body)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
-    if new_candidates and not args.ignore_seen:
-        seen.update(deal_key(candidate, config) for candidate in new_candidates)
+    if top_5_candidates and not args.ignore_seen:
+        seen.update(deal_key(candidate, config) for candidate in top_5_candidates)
     if not args.ignore_seen:
         save_seen_deals(args.seen_file, seen)
-    print(f"Wrote {args.output} with {len(new_candidates)} new candidates")
+    print(f"Wrote {args.output} with {len(top_5_candidates)} new candidates")
 
     if args.email:
         if not args.email_to:
             raise RuntimeError("Email delivery requested, but no recipient was provided. Set DEAL_AGENT_EMAIL_TO or pass --email-to.")
-        subject = f"Daily Deal Radar: {len(new_candidates)} new deals - {as_of.isoformat()}"
+        subject = f"Daily Deal Radar: {len(top_5_candidates)} new deals - {as_of.isoformat()}"
         send_email(subject, report, args.email_to, args.output)
         print(f"Sent email report to {args.email_to}")
 
