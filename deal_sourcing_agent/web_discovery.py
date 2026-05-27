@@ -168,6 +168,56 @@ def _nvidia_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -
         raise RuntimeError(f"Unexpected NVIDIA response: {payload}") from exc
 
 
+def _parse_inr_cr(value: Any, config: dict[str, Any]) -> float | None:
+    """Parse LLM output into INR crore (numeric). Handles 500, '500', '500 cr', '500m' ($M)."""
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if not isinstance(value, str):
+        return None
+
+    s = value.strip().lower().replace(",", "")
+    for token in ("$", "₹", "inr", "usd", " "):
+        s = s.replace(token, "")
+    s = s.strip()
+    if not s:
+        return None
+
+    usd_to_inr = float(config.get("usd_to_inr", 83.0))
+
+    match = re.match(r"^([\d.]+)\s*(cr|crore|crs?)\b", s)
+    if match:
+        return float(match.group(1))
+
+    match = re.match(r"^([\d.]+)\s*(b|bn|billion)\b", s)
+    if match:
+        # Treat as USD billions → INR cr ($1B ≈ usd_to_inr * 100 cr)
+        return float(match.group(1)) * usd_to_inr * 100.0
+
+    match = re.match(r"^([\d.]+)\s*(m|mn|mil|million)\b", s)
+    if match:
+        # Treat as USD millions → INR cr ($1M ≈ usd_to_inr / 10 cr)
+        return float(match.group(1)) * usd_to_inr / 10.0
+
+    match = re.match(r"^([\d.]+)$", s)
+    if match:
+        return float(match.group(1))
+
+    try:
+        return float(s)
+    except ValueError:
+        print(f"[DEBUG] Could not parse INR cr value: {value!r}")
+        return None
+
+
+def _inr_cr_to_rupees(value: Any, config: dict[str, Any]) -> float | None:
+    cr = _parse_inr_cr(value, config)
+    if cr is None:
+        return None
+    return cr * 10_000_000
+
+
 def _json_from_text(text: str) -> dict[str, Any]:
     try:
         return json.loads(text)
@@ -187,6 +237,8 @@ Do not infer missing values.
 Only include deals where the article explicitly reports a post-money valuation.
 Return strict JSON with this schema:
 {"deals":[{"company_name":"","overview":"","country":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"post_money_valuation_inr_cr":null,"investors":[],"source_url":""}]}
+Use numbers only for deal_size_inr_cr and post_money_valuation_inr_cr (INR crore, e.g. 4150 not "500m").
+If amounts are only in USD millions, convert to INR crore (approx $1M USD = 8.3 INR cr).
 If no qualifying deal is explicit in the article, return {"deals":[]}."""
     user_prompt = f"""Article title: {article.title}
 Article URL: {article.url}
@@ -230,10 +282,10 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
                     "latest_round": {
                         "date": deal.get("round_date") or as_of.isoformat(),
                         "type": deal.get("round_type") or "Unknown",
-                        "amount_inr": float(deal["deal_size_inr_cr"]) * 10_000_000 if deal.get("deal_size_inr_cr") is not None else None,
-                        "post_money_valuation_inr": float(deal["post_money_valuation_inr_cr"]) * 10_000_000
-                        if deal.get("post_money_valuation_inr_cr") is not None
-                        else None,
+                        "amount_inr": _inr_cr_to_rupees(deal.get("deal_size_inr_cr"), config),
+                        "post_money_valuation_inr": _inr_cr_to_rupees(
+                            deal.get("post_money_valuation_inr_cr"), config
+                        ),
                         "investors": deal.get("investors") if isinstance(deal.get("investors"), list) else [],
                     },
                     "signals": {},
