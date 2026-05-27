@@ -1,18 +1,18 @@
 [
   {
-    "name": "NimbleCredit",
+    "name": "SampleCo AboveBand",
     "website": "https://example.com/nimblecredit",
     "country": "India",
     "city": "Bengaluru",
     "ownership_status": "private",
     "sector": "Fintech",
-    "description": "Embedded working-capital platform for SME supply chains.",
+    "description": "Sample company intentionally above the target valuation band.",
     "latest_round": {
       "date": "2026-05-12",
       "type": "Series C",
       "amount_usd": 22000000,
       "post_money_valuation_usd": 145000000,
-      "investors": ["Peak Ridge Capital", "Northstar Ventures"]
+      "investors": ["Sample Investor A", "Sample Investor B"]
     },
     "signals": {
       "revenue_growth_yoy_pct": 95,

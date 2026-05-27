@@ -1,9 +1,9 @@
 {
   "target_country": "India",
-  "minimum_valuation_usd": 50000000,
-  "recent_round_days": 120,
-  "assumed_min_dilution": 0.08,
-  "assumed_max_dilution": 0.25,
+  "minimum_post_money_valuation_inr_cr": 300,
+  "maximum_post_money_valuation_inr_cr": 1000,
+  "usd_to_inr": 83.0,
+  "recent_round_days": 30,
   "preferred_rounds": [
     "Series B",
     "Series C",

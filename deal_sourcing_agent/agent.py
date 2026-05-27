@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import smtplib
@@ -16,7 +17,7 @@ from typing import Any
 @dataclass
 class Candidate:
     company: dict[str, Any]
-    valuation_usd: float
+    valuation_inr_cr: float
     valuation_basis: str
     score: float
     reasons: list[str]
@@ -32,23 +33,44 @@ def parse_date(value: str) -> date:
     return datetime.strptime(value, "%Y-%m-%d").date()
 
 
-def infer_valuation_usd(company: dict[str, Any], config: dict[str, Any]) -> tuple[float | None, str]:
+def money_to_inr_cr(value: float | int | None, currency: str, config: dict[str, Any]) -> float | None:
+    if value is None:
+        return None
+    amount = float(value)
+    if currency.upper() == "INR":
+        return amount / 10_000_000
+    if currency.upper() == "USD":
+        return amount * float(config["usd_to_inr"]) / 10_000_000
+    return None
+
+
+def format_inr_cr(value: float | None) -> str:
+    if value is None:
+        return "undisclosed"
+    return f"INR {value:,.1f} cr"
+
+
+def round_amount_inr_cr(company: dict[str, Any], config: dict[str, Any]) -> float | None:
     round_info = company.get("latest_round", {})
-    explicit = round_info.get("post_money_valuation_usd")
-    if explicit:
-        return float(explicit), "reported post-money valuation"
+    amount_inr = money_to_inr_cr(round_info.get("amount_inr"), "INR", config) if round_info.get("amount_inr") else None
+    if amount_inr is not None:
+        return amount_inr
+    if "usd_to_inr" not in config:
+        return None
+    return money_to_inr_cr(round_info.get("amount_usd"), "USD", config)
 
-    amount = round_info.get("amount_usd")
-    if not amount:
-        return None, "missing round amount and valuation"
 
-    # If valuation is undisclosed, estimate a range from typical dilution.
-    # Use the conservative lower bound for thresholding.
-    max_dilution = float(config["assumed_max_dilution"])
-    min_dilution = float(config["assumed_min_dilution"])
-    low = float(amount) / max_dilution
-    high = float(amount) / min_dilution
-    return low, f"inferred conservative post-money valuation range: ${low:,.0f}-${high:,.0f}"
+def post_money_valuation_inr_cr(company: dict[str, Any], config: dict[str, Any]) -> tuple[float | None, str]:
+    round_info = company.get("latest_round", {})
+    explicit_inr = round_info.get("post_money_valuation_inr")
+    if explicit_inr:
+        return money_to_inr_cr(explicit_inr, "INR", config), "reported post-money valuation"
+
+    explicit_usd = round_info.get("post_money_valuation_usd")
+    if explicit_usd:
+        return money_to_inr_cr(explicit_usd, "USD", config), "reported post-money valuation converted from USD"
+
+    return None, "missing reported post-money valuation"
 
 
 def is_recent_round(company: dict[str, Any], as_of: date, days: int) -> bool:
@@ -71,14 +93,16 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
         return False, reasons, risks, None, "round is not recent"
     reasons.append("latest round is recent")
 
-    valuation, basis = infer_valuation_usd(company, config)
+    valuation, basis = post_money_valuation_inr_cr(company, config)
     if valuation is None:
-        risks.append("valuation could not be inferred")
+        risks.append("reported post-money valuation is unavailable")
         return False, reasons, risks, None, basis
 
-    if valuation < float(config["minimum_valuation_usd"]):
+    min_valuation = float(config["minimum_post_money_valuation_inr_cr"])
+    max_valuation = float(config["maximum_post_money_valuation_inr_cr"])
+    if valuation < min_valuation or valuation > max_valuation:
         return False, reasons, risks, valuation, basis
-    reasons.append(f"valuation clears ${config['minimum_valuation_usd']:,.0f} threshold via {basis}")
+    reasons.append(f"reported post-money valuation is in the INR {min_valuation:,.0f}-{max_valuation:,.0f} cr band")
 
     round_type = company.get("latest_round", {}).get("type")
     if round_type in config["preferred_rounds"]:
@@ -89,7 +113,7 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
     return True, reasons, risks, valuation, basis
 
 
-def score_company(company: dict[str, Any], config: dict[str, Any], valuation_usd: float, reasons: list[str], risks: list[str]) -> float:
+def score_company(company: dict[str, Any], config: dict[str, Any], valuation_inr_cr: float, reasons: list[str], risks: list[str]) -> float:
     score = 50.0
     sector = company.get("sector", "")
     score += float(config["sector_weights"].get(sector, 0))
@@ -97,7 +121,7 @@ def score_company(company: dict[str, Any], config: dict[str, Any], valuation_usd
     signals = company.get("signals", {})
     score += min(float(signals.get("revenue_growth_yoy_pct", 0)) / 10, 15)
     score += min(float(signals.get("employee_growth_6m_pct", 0)) / 5, 8)
-    score += min(valuation_usd / 100_000_000, 10)
+    score += min(valuation_inr_cr / 100, 10)
 
     if signals.get("notable_customers"):
         score += 5
@@ -121,32 +145,50 @@ def build_candidates(companies: list[dict[str, Any]], config: dict[str, Any], as
     return sorted(candidates, key=lambda c: c.score, reverse=True)
 
 
+def deal_key(candidate: Candidate, config: dict[str, Any]) -> str:
+    company = candidate.company
+    round_info = company.get("latest_round", {})
+    raw_key = "|".join(
+        [
+            str(company.get("name", "")).strip().lower(),
+            str(round_info.get("date", "")).strip(),
+            str(round_info.get("type", "")).strip().lower(),
+            str(round_amount_inr_cr(company, config) or ""),
+        ]
+    )
+    return hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
+
+
+def load_seen_deals(path: Path) -> set[str]:
+    if not path.exists():
+        return set()
+    data = load_json(path)
+    if isinstance(data, list):
+        return set(str(item) for item in data)
+    return set(str(item) for item in data.get("deal_keys", []))
+
+
+def save_seen_deals(path: Path, seen: set[str]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"deal_keys": sorted(seen)}, indent=2), encoding="utf-8")
+
+
+def filter_new_candidates(candidates: list[Candidate], seen: set[str], config: dict[str, Any]) -> list[Candidate]:
+    return [candidate for candidate in candidates if deal_key(candidate, config) not in seen]
+
+
 def candidate_to_markdown(candidate: Candidate) -> str:
     company = candidate.company
     round_info = company["latest_round"]
     investors = ", ".join(round_info.get("investors", [])) or "undisclosed"
-    reasons = "\n".join(f"- {reason}" for reason in candidate.reasons)
-    risks = "\n".join(f"- {risk}" for risk in candidate.risks) or "- No major data-quality risk flagged"
-    sources = ", ".join(company.get("sources", [])) or "not provided"
+    deal_size = format_inr_cr(round_amount_inr_cr(company, {"usd_to_inr": 83.0}))
 
-    return f"""## {company['name']} - score {candidate.score}/100
+    return f"""## {company['name']}
 
-**Sector:** {company.get('sector')}  
-**Location:** {company.get('city')}, {company.get('country')}  
-**Website:** {company.get('website')}  
-**Latest round:** {round_info.get('type')} on {round_info.get('date')} for ${round_info.get('amount_usd', 0):,.0f}  
-**Investors:** {investors}  
-**Valuation:** ${candidate.valuation_usd:,.0f} ({candidate.valuation_basis})  
-
-**Why it is relevant**
-{reasons}
-
-**Risks / diligence questions**
-{risks}
-
-**Initial sourcing angle:** {company.get('description')}
-
-**Sources:** {sources}
+**Overview:** {company.get('description') or 'No overview available.'}  
+**Investors in round:** {investors}  
+**Deal size:** {deal_size}  
+**Post-money valuation:** {format_inr_cr(candidate.valuation_inr_cr)}  
 """
 
 
@@ -199,10 +241,12 @@ def send_email(subject: str, markdown_body: str, recipient: str, attachment_path
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Find Indian private companies with recent funding and $50M+ valuation.")
+    parser = argparse.ArgumentParser(description="Find Indian private companies with recent funding and INR 300-1000 cr post-money valuation.")
     parser.add_argument("--config", default="config.json", type=Path)
     parser.add_argument("--input", default="data/sample_companies.json", type=Path)
     parser.add_argument("--output", default="output/deal_sourcing_report.md", type=Path)
+    parser.add_argument("--seen-file", default="output/seen_deals.json", type=Path)
+    parser.add_argument("--ignore-seen", action="store_true", help="Include deals even if they were already reported before.")
     parser.add_argument("--as-of", default=date.today().isoformat())
     parser.add_argument("--email-to", default=os.environ.get("DEAL_AGENT_EMAIL_TO"))
     parser.add_argument("--email", action="store_true", help="Send the report by email using SMTP_* environment variables.")
@@ -212,28 +256,33 @@ def main() -> None:
     companies = load_json(args.input)
     as_of = parse_date(args.as_of)
     candidates = build_candidates(companies, config, as_of)
+    seen = load_seen_deals(args.seen_file)
+    new_candidates = candidates if args.ignore_seen else filter_new_candidates(candidates, seen, config)
 
     body = [
-        "# India Growth Deal Sourcing Report",
+        "# Daily Deal Radar",
         "",
         f"As of: {as_of.isoformat()}",
-        f"Screen: private Indian companies, latest funding within {config['recent_round_days']} days, valuation >= ${config['minimum_valuation_usd']:,.0f}",
+        f"Screen: private Indian companies with funding in the past {config['recent_round_days']} days and reported post-money valuation of INR {config['minimum_post_money_valuation_inr_cr']}-{config['maximum_post_money_valuation_inr_cr']} cr",
         "",
     ]
-    if not candidates:
-        body.append("No qualifying companies found.")
+    if not new_candidates:
+        body.append("No new deals found.")
     else:
-        body.extend(candidate_to_markdown(candidate) for candidate in candidates)
+        body.extend(candidate_to_markdown(candidate) for candidate in new_candidates)
 
     report = "\n".join(body)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
-    print(f"Wrote {args.output} with {len(candidates)} candidates")
+    if new_candidates and not args.ignore_seen:
+        seen.update(deal_key(candidate, config) for candidate in new_candidates)
+        save_seen_deals(args.seen_file, seen)
+    print(f"Wrote {args.output} with {len(new_candidates)} new candidates")
 
     if args.email:
         if not args.email_to:
             raise RuntimeError("Email delivery requested, but no recipient was provided. Set DEAL_AGENT_EMAIL_TO or pass --email-to.")
-        subject = f"India growth deal sourcing: {len(candidates)} candidates - {as_of.isoformat()}"
+        subject = f"Daily Deal Radar: {len(new_candidates)} new deals - {as_of.isoformat()}"
         send_email(subject, report, args.email_to, args.output)
         print(f"Sent email report to {args.email_to}")
 
