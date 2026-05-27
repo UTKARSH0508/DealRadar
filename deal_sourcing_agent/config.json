@@ -6,7 +6,7 @@
   "recent_round_days": 30,
   "max_articles": 5,
   "article_text_chars": 12000,
-  "groq_model": "llama-3.3-70b-versatile",
+  "groq_model": "mixtral-8x7b-32768",
   "groq_timeout_seconds": 120,
   "search_queries": [
     "\"India\" startup funding valuation \"post-money\"",
