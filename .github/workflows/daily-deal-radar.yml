@@ -20,6 +20,7 @@ jobs:
       - name: Check out repository
         uses: actions/checkout@v5
         with:
+          ref: main
           fetch-depth: 0
 
       - name: Set up Python
@@ -55,16 +56,30 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git pull --rebase origin main
-          git add deal_sourcing_agent/output/seen_deals.json
+          git config pull.rebase true
+
+          SEEN_FILE="deal_sourcing_agent/output/seen_deals.json"
+          cp "$SEEN_FILE" /tmp/seen_deals.json
+
+          git fetch origin main
+          git checkout main
+          git reset --hard origin/main
+          cp /tmp/seen_deals.json "$SEEN_FILE"
+
+          git add "$SEEN_FILE"
           if git diff --cached --quiet; then
             echo "No changes to seen_deals.json"
             exit 0
           fi
           git commit -m "Update seen deals"
-          for attempt in 1 2 3; do
-            git pull --rebase origin main && git push origin main && exit 0
-            echo "Push failed, retrying ($attempt/3)..."
-            sleep 3
+
+          for attempt in 1 2 3 4 5; do
+            if git push origin main; then
+              exit 0
+            fi
+            echo "Push rejected, syncing with origin/main (attempt $attempt/5)..."
+            git fetch origin main
+            git rebase origin/main
+            sleep 2
           done
           exit 1
