@@ -70,7 +70,10 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
     seen_urls: set[str] = set()
     articles: list[Article] = []
 
+    print(f"[DEBUG] Starting article discovery: max_articles={max_articles}, lookback_days={lookback_days}")
+
     for query in config.get("search_queries", []):
+        print(f"[DEBUG] Searching for articles with query: {query}")
         params = {
             "query": query,
             "mode": "ArtList",
@@ -82,7 +85,8 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
         url = "https://api.gdeltproject.org/api/v2/doc/doc?" + urllib.parse.urlencode(params)
         try:
             payload = _get_json(url)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError):
+        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
+            print(f"[DEBUG] Error fetching articles for query '{query}': {e}")
             continue
 
         for item in payload.get("articles", []):
@@ -92,9 +96,11 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
             seen_urls.add(article_url)
             try:
                 text = _get_text(article_url)
-            except (urllib.error.URLError, TimeoutError, UnicodeError):
+            except (urllib.error.URLError, TimeoutError, UnicodeError) as e:
+                print(f"[DEBUG] Error fetching text from {article_url}: {e}")
                 continue
             if len(text) < 500:
+                print(f"[DEBUG] Article too short ({len(text)} chars): {article_url}")
                 continue
             articles.append(
                 Article(
@@ -105,9 +111,12 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
                     text=text[: int(config.get("article_text_chars", 12000))],
                 )
             )
+            print(f"[DEBUG] Added article: {item.get('title', 'Unknown')}")
             if len(articles) >= max_articles:
+                print(f"[DEBUG] Reached max_articles limit ({max_articles})")
                 return articles
 
+    print(f"[DEBUG] Article discovery complete: found {len(articles)} articles")
     return articles
 
 
@@ -115,6 +124,8 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
     api_key = os.environ.get("GROQ_API_KEY")
     if not api_key:
         raise RuntimeError("Missing GROQ_API_KEY. Add it as a GitHub Actions secret.")
+    
+    print(f"[DEBUG] GROQ_API_KEY found: {api_key[:10]}...{api_key[-5:]}")
 
     body = {
         "model": os.environ.get("GROQ_MODEL", config.get("groq_model", "llama-3.3-70b-versatile")),
@@ -125,6 +136,11 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
         "temperature": 0,
         "response_format": {"type": "json_object"},
     }
+    
+    model_name = body["model"]
+    print(f"[DEBUG] Using Groq model: {model_name}")
+    print(f"[DEBUG] Making request to Groq API...")
+    
     request = urllib.request.Request(
         "https://api.groq.com/openai/v1/chat/completions",
         data=json.dumps(body).encode("utf-8"),
@@ -135,10 +151,15 @@ def _groq_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> 
         },
     )
     try:
-        with urllib.request.urlopen(request, timeout=int(config.get("groq_timeout_seconds", 60))) as response:
+        timeout = int(config.get("groq_timeout_seconds", 60))
+        print(f"[DEBUG] Request timeout: {timeout} seconds")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
+            print(f"[DEBUG] Groq API response received successfully")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
+        print(f"[DEBUG] Groq API HTTP Error {exc.code}")
+        print(f"[DEBUG] Error detail: {detail}")
         raise RuntimeError(f"Groq API returned HTTP {exc.code}: {detail}") from exc
     return payload["choices"][0]["message"]["content"]
 
@@ -154,6 +175,8 @@ def _json_from_text(text: str) -> dict[str, Any]:
 
 
 def extract_deals_from_article(article: Article, config: dict[str, Any]) -> list[dict[str, Any]]:
+    print(f"[DEBUG] Extracting deals from article: {article.title[:50]}...")
+    
     system_prompt = """You extract Indian private-market funding deals for a growth fund.
 Use only the article text and metadata provided by the user.
 Do not infer missing values.
@@ -169,18 +192,27 @@ Domain: {article.domain}
 Article text:
 {article.text}
 """
+    
     # Add delay before calling Groq API to respect rate limits
+    print(f"[DEBUG] Waiting 2 seconds before Groq API call...")
     time.sleep(2)
     
+    print(f"[DEBUG] Calling Groq API...")
     content = _groq_chat(system_prompt, user_prompt, config)
     parsed = _json_from_text(content)
     deals = parsed.get("deals", [])
+    print(f"[DEBUG] Extracted {len(deals)} deals from article")
     return [deal for deal in deals if isinstance(deal, dict)]
 
 
 def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, Any]]:
+    print(f"[DEBUG] Starting fetch_web_companies")
     companies: list[dict[str, Any]] = []
-    for article in discover_articles(config):
+    articles = discover_articles(config)
+    print(f"[DEBUG] Processing {len(articles)} articles")
+    
+    for i, article in enumerate(articles, 1):
+        print(f"[DEBUG] Processing article {i}/{len(articles)}")
         for deal in extract_deals_from_article(article, config):
             companies.append(
                 {
@@ -205,4 +237,6 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
                     "source_title": deal.get("source_title") or article.title,
                 }
             )
+    
+    print(f"[DEBUG] fetch_web_companies complete: found {len(companies)} companies")
     return companies
