@@ -120,45 +120,53 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
     return articles
 
 
-def _openai_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> str:
-    api_key = os.environ.get("OPENAI_API_KEY")
+def _gemini_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> str:
+    api_key = os.environ.get("GEMINI_API_KEY")
     if not api_key:
-        raise RuntimeError("Missing OPENAI_API_KEY. Add it as a GitHub Actions secret.")
+        raise RuntimeError(
+            "Missing GEMINI_API_KEY. Get a free key at https://aistudio.google.com/apikey "
+            "and add it as a GitHub Actions secret."
+        )
 
     model_name = os.environ.get(
-        "OPENAI_MODEL",
-        config.get("openai_model", "gpt-4o-mini"),
+        "GEMINI_MODEL",
+        config.get("gemini_model", "gemini-2.0-flash"),
     )
     body = {
-        "model": model_name,
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
-        "temperature": 0,
-        "response_format": {"type": "json_object"},
+        "systemInstruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+        "generationConfig": {
+            "temperature": 0,
+            "responseMimeType": "application/json",
+        },
     }
 
-    print(f"[DEBUG] Using OpenAI model: {model_name}")
+    print(f"[DEBUG] Using Gemini model: {model_name}")
 
+    url = (
+        f"https://generativelanguage.googleapis.com/v1beta/models/"
+        f"{urllib.parse.quote(model_name, safe='')}:generateContent"
+        f"?key={urllib.parse.quote(api_key, safe='')}"
+    )
     request = urllib.request.Request(
-        "https://api.openai.com/v1/chat/completions",
+        url,
         data=json.dumps(body).encode("utf-8"),
         method="POST",
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
+        headers={"Content-Type": "application/json"},
     )
 
     try:
-        timeout = int(config.get("openai_timeout_seconds", 60))
+        timeout = int(config.get("gemini_timeout_seconds", 60))
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"OpenAI API returned HTTP {exc.code}: {detail}") from exc
-    return payload["choices"][0]["message"]["content"]
+        raise RuntimeError(f"Gemini API returned HTTP {exc.code}: {detail}") from exc
+
+    try:
+        return payload["candidates"][0]["content"]["parts"][0]["text"]
+    except (KeyError, IndexError) as exc:
+        raise RuntimeError(f"Unexpected Gemini response: {payload}") from exc
 
 
 def _json_from_text(text: str) -> dict[str, Any]:
@@ -190,12 +198,12 @@ Article text:
 {article.text}
 """
     
-    # Add delay before calling OpenAI API to respect rate limits
-    print(f"[DEBUG] Waiting 2 seconds before OpenAI API call...")
+    # Add delay before calling Gemini API to respect rate limits
+    print(f"[DEBUG] Waiting 2 seconds before Gemini API call...")
     time.sleep(2)
 
-    print(f"[DEBUG] Calling OpenAI API...")
-    content = _openai_chat(system_prompt, user_prompt, config)
+    print(f"[DEBUG] Calling Gemini API...")
+    content = _gemini_chat(system_prompt, user_prompt, config)
     parsed = _json_from_text(content)
     deals = parsed.get("deals", [])
     print(f"[DEBUG] Extracted {len(deals)} deals from article")

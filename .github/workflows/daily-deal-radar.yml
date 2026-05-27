@@ -32,7 +32,7 @@ jobs:
         run: python agent.py --email
         env:
           DEAL_AGENT_EMAIL_TO: mehtautkarsh5@gmail.com
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           SMTP_HOST: smtp.gmail.com
           SMTP_PORT: 587
           SMTP_USERNAME: mehtautkarsh5@gmail.com

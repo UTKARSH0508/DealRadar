@@ -6,8 +6,8 @@
   "recent_round_days": 30,
   "max_articles": 5,
   "article_text_chars": 12000,
-  "openai_model": "gpt-4o-mini",
-  "openai_timeout_seconds": 120,
+  "gemini_model": "gemini-2.0-flash",
+  "gemini_timeout_seconds": 120,
   "search_queries": [
     "\"India\" startup funding valuation \"post-money\"",
     "\"Indian startup\" raised funding valuation",
