@@ -120,53 +120,52 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
     return articles
 
 
-def _gemini_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> str:
-    api_key = os.environ.get("GEMINI_API_KEY")
+def _nvidia_chat(system_prompt: str, user_prompt: str, config: dict[str, Any]) -> str:
+    api_key = os.environ.get("NVIDIA_API_KEY")
     if not api_key:
         raise RuntimeError(
-            "Missing GEMINI_API_KEY. Get a free key at https://aistudio.google.com/apikey "
-            "and add it as a GitHub Actions secret."
+            "Missing NVIDIA_API_KEY. Get a free key at https://build.nvidia.com "
+            "(pick any model → Get API Key) and add it as a GitHub Actions secret."
         )
 
     model_name = os.environ.get(
-        "GEMINI_MODEL",
-        config.get("gemini_model", "gemini-2.0-flash"),
+        "NVIDIA_MODEL",
+        config.get("nvidia_model", "meta/llama-3.1-8b-instruct"),
     )
     body = {
-        "systemInstruction": {"parts": [{"text": system_prompt}]},
-        "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
-        "generationConfig": {
-            "temperature": 0,
-            "responseMimeType": "application/json",
-        },
+        "model": model_name,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ],
+        "temperature": 0,
+        "max_tokens": int(config.get("nvidia_max_tokens", 1024)),
     }
 
-    print(f"[DEBUG] Using Gemini model: {model_name}")
+    print(f"[DEBUG] Using NVIDIA NIM model: {model_name}")
 
-    url = (
-        f"https://generativelanguage.googleapis.com/v1beta/models/"
-        f"{urllib.parse.quote(model_name, safe='')}:generateContent"
-        f"?key={urllib.parse.quote(api_key, safe='')}"
-    )
     request = urllib.request.Request(
-        url,
+        "https://integrate.api.nvidia.com/v1/chat/completions",
         data=json.dumps(body).encode("utf-8"),
         method="POST",
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
     )
 
     try:
-        timeout = int(config.get("gemini_timeout_seconds", 60))
+        timeout = int(config.get("nvidia_timeout_seconds", 60))
         with urllib.request.urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
-        raise RuntimeError(f"Gemini API returned HTTP {exc.code}: {detail}") from exc
+        raise RuntimeError(f"NVIDIA API returned HTTP {exc.code}: {detail}") from exc
 
     try:
-        return payload["candidates"][0]["content"]["parts"][0]["text"]
+        return payload["choices"][0]["message"]["content"]
     except (KeyError, IndexError) as exc:
-        raise RuntimeError(f"Unexpected Gemini response: {payload}") from exc
+        raise RuntimeError(f"Unexpected NVIDIA response: {payload}") from exc
 
 
 def _json_from_text(text: str) -> dict[str, Any]:
@@ -198,12 +197,12 @@ Article text:
 {article.text}
 """
     
-    # Add delay before calling Gemini API to respect rate limits
-    print(f"[DEBUG] Waiting 2 seconds before Gemini API call...")
+    # Add delay before calling NVIDIA API to respect rate limits
+    print(f"[DEBUG] Waiting 2 seconds before NVIDIA API call...")
     time.sleep(2)
 
-    print(f"[DEBUG] Calling Gemini API...")
-    content = _gemini_chat(system_prompt, user_prompt, config)
+    print(f"[DEBUG] Calling NVIDIA API...")
+    content = _nvidia_chat(system_prompt, user_prompt, config)
     parsed = _json_from_text(content)
     deals = parsed.get("deals", [])
     print(f"[DEBUG] Extracted {len(deals)} deals from article")

@@ -1,16 +1,16 @@
 # Daily Deal Radar
 
-Daily Deal Radar is a GitHub Actions job that searches the web for Indian funding announcements, uses Google Gemini (free tier) to extract deal facts, filters for reported post-money valuations of INR 300-1000 cr, dedupes previously emailed deals, and sends a concise email report.
+Daily Deal Radar is a GitHub Actions job that searches the web for Indian funding announcements, uses NVIDIA NIM (free API catalog) to extract deal facts, filters for reported post-money valuations, dedupes previously emailed deals, and sends a concise email report.
 
 ## Flow
 
 1. GitHub Actions runs daily at 9:00 AM Asia/Kolkata.
 2. `web_discovery.py` queries GDELT for recent funding-news articles from the past 30 days.
-3. The script fetches article text from each source URL.
-4. Gemini extracts structured deal facts from each article.
-5. `agent.py` keeps only private Indian companies with explicitly reported post-money valuation of INR 300-1000 cr.
+3. Python fetches article text from each source URL (no LLM).
+4. NVIDIA NIM extracts structured deal facts from each article (LLM).
+5. `agent.py` keeps only private Indian companies with explicitly reported post-money valuation.
 6. Deals already present in `output/seen_deals.json` are suppressed.
-7. The final email shows only company name, brief overview, investors in the round, deal size, post-money valuation, and source.
+7. The final email shows company name, overview, investors, deal size, post-money valuation, and source.
 
 If no qualifying unseen deals are found, the report says:
 
@@ -21,8 +21,8 @@ No new deals found.
 ## Run Locally
 
 ```bash
-cd /Users/utkarsh/Documents/Codex/2026-05-25/help-me-make-an-agent-which/deal_sourcing_agent
-export GEMINI_API_KEY=your-gemini-api-key
+cd deal_sourcing_agent
+export NVIDIA_API_KEY=your-nvidia-api-key
 python3 agent.py
 ```
 
@@ -46,14 +46,18 @@ output/deal_sourcing_report.md
 
 ## LLM setup (free)
 
-Get a free API key from [Google AI Studio](https://aistudio.google.com/apikey) (no credit card required for the free tier). The default model is `gemini-2.0-flash`, which is suitable for demo runs.
+1. Sign up at [build.nvidia.com](https://build.nvidia.com).
+2. Open any model page → **Get API Key** (starts with `nvapi-`).
+3. Default model: `meta/llama-3.1-8b-instruct` (demo-friendly, free catalog tier).
+
+Scraping (GDELT + HTML fetch) is pure Python. The LLM only reads downloaded article text and returns JSON.
 
 ## GitHub Actions Setup
 
 Add these repository secrets:
 
 ```text
-GEMINI_API_KEY
+NVIDIA_API_KEY
 SMTP_PASSWORD
 ```
 
@@ -69,11 +73,11 @@ The workflow is preconfigured to:
 Edit `config.json` for:
 
 - `recent_round_days`: lookback window, currently 30 days
-- `minimum_post_money_valuation_inr_cr`: currently 300
-- `maximum_post_money_valuation_inr_cr`: currently 1000
+- `minimum_post_money_valuation_inr_cr` / `maximum_post_money_valuation_inr_cr`
 - `search_queries`: GDELT search queries
-- `gemini_model`: Gemini model used for extraction (default: `gemini-2.0-flash`, free tier)
-- `max_articles`: maximum articles inspected per run
+- `nvidia_model`: NVIDIA catalog model id (default: `meta/llama-3.1-8b-instruct`)
+- `max_articles`: articles per run (default: `1` for demo)
+- `article_text_chars`: max chars sent to the LLM per article (default: `4000`)
 
 ## Important Limitation
 
