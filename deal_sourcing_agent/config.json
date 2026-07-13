@@ -4,14 +4,19 @@
   "maximum_post_money_valuation_inr_cr": 999999999,
   "usd_to_inr": 83.0,
   "recent_round_days": 30,
-  "max_articles": 1,
+  "max_articles": 10,
   "article_text_chars": 4000,
-  "nvidia_model": "meta/llama-3.1-8b-instruct",
+  "nvidia_model": "meta/llama-3.3-70b-instruct",
   "nvidia_max_tokens": 1024,
   "nvidia_timeout_seconds": 120,
   "gdelt_delay_seconds": 5,
   "search_queries": [
-    "\"India\" startup funding valuation"
+    "\"Series A\" India startup funding 2025",
+    "\"Series B\" India startup funding 2025",
+    "\"Series C\" OR \"Series D\" India startup funding",
+    "India startup raises crore valuation",
+    "India fintech \"growth round\" funding",
+    "India SaaS startup investment 2025"
   ],
   "preferred_rounds": [
     "Series A",

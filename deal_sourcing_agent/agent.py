@@ -66,7 +66,9 @@ def post_money_valuation_inr_cr(company: dict[str, Any], config: dict[str, Any])
     round_info = company.get("latest_round", {})
     explicit_inr = round_info.get("post_money_valuation_inr")
     if explicit_inr:
-        return money_to_inr_cr(explicit_inr, "INR", config), "reported post-money valuation"
+        basis = round_info.get("valuation_basis", "reported")
+        label = "estimated post-money valuation" if basis == "estimated" else "reported post-money valuation"
+        return money_to_inr_cr(explicit_inr, "INR", config), label
 
     explicit_usd = round_info.get("post_money_valuation_usd")
     if explicit_usd:
@@ -112,7 +114,12 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
 
 
 def score_company(company: dict[str, Any], config: dict[str, Any], valuation_inr_cr: float, reasons: list[str], risks: list[str]) -> float:
-    return round(max(0, min(100, 50 + min(valuation_inr_cr / 100, 10) - len(risks) * 3)), 1)
+    sector = company.get("sector", "").strip()
+    sector_weight = config.get("sector_weights", {}).get(sector, 1.0)
+    base_score = 50 + min(valuation_inr_cr / 100, 10) - len(risks) * 3
+    # Sector weight is 1–8; normalise so a weight of 8 adds ~10 bonus points vs weight of 1
+    sector_bonus = (float(sector_weight) - 1.0) * (10.0 / 7.0)
+    return round(max(0, min(100, base_score + sector_bonus)), 1)
 
 
 def build_candidates(companies: list[dict[str, Any]], config: dict[str, Any], as_of: date) -> list[Candidate]:
@@ -166,13 +173,17 @@ def candidate_to_markdown(candidate: Candidate) -> str:
     deal_size = format_inr_cr(round_amount_inr_cr(company, {"usd_to_inr": 83.0}))
     sources = ", ".join(company.get("sources", [])) or "not provided"
 
+    valuation_str = format_inr_cr(candidate.valuation_inr_cr)
+    if candidate.valuation_basis == "estimated post-money valuation":
+        valuation_str += " (est.)"
+
     return f"""## {company['name']}
 
-**Overview:** {company.get('description') or 'No overview available.'}  
-**Investors in round:** {investors}  
-**Deal size:** {deal_size}  
-**Post-money valuation:** {format_inr_cr(candidate.valuation_inr_cr)}  
-**Source:** {sources}  
+**Overview:** {company.get('description') or 'No overview available.'}
+**Investors in round:** {investors}
+**Deal size:** {deal_size}
+**Post-money valuation:** {valuation_str}
+**Source:** {sources}
 """
 
 

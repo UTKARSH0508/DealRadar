@@ -89,8 +89,6 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
     gdelt_delay = float(config.get("gdelt_delay_seconds", 3))
 
     for query in config.get("search_queries", []):
-        if articles:
-            break
         print(f"[DEBUG] Searching for articles with query: {query}")
         params = {
             "query": query,
@@ -254,13 +252,16 @@ def extract_deals_from_article(article: Article, config: dict[str, Any]) -> list
     
     system_prompt = """You extract Indian private-market funding deals for a growth fund.
 Use only the article text and metadata provided by the user.
-Do not infer missing values.
-Only include deals where the article explicitly reports a post-money valuation.
 Return strict JSON with this schema:
-{"deals":[{"company_name":"","overview":"","country":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"post_money_valuation_inr_cr":null,"investors":[],"source_url":""}]}
+{"deals":[{"company_name":"","overview":"","country":"","sector":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"post_money_valuation_inr_cr":null,"valuation_basis":"reported","investors":[],"source_url":""}]}
 Use numbers only for deal_size_inr_cr and post_money_valuation_inr_cr (INR crore, e.g. 4150 not "500m").
 If amounts are only in USD millions, convert to INR crore (approx $1M USD = 8.3 INR cr).
-If no qualifying deal is explicit in the article, return {"deals":[]}."""
+For post_money_valuation_inr_cr:
+- If the article explicitly states a post-money valuation, use it and set valuation_basis to "reported".
+- If no post-money valuation is stated but deal_size_inr_cr is clear, estimate it using conservative multiples (Seed: 3x, Series A: 5x, Series B: 6x, Series C+: 7x) and set valuation_basis to "estimated".
+- If neither valuation nor deal size is available, omit the deal entirely.
+Set sector to the best-matching category among: AI, Fintech, SaaS, Healthcare, Climate, Consumer, Logistics, or Other.
+If no qualifying deal is in the article, return {"deals":[]}."""
     user_prompt = f"""Article title: {article.title}
 Article URL: {article.url}
 Seen date: {article.published_at}
@@ -298,7 +299,7 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
                     "country": deal.get("country") or "India",
                     "city": "",
                     "ownership_status": "private",
-                    "sector": "Unknown",
+                    "sector": deal.get("sector") or "Unknown",
                     "description": deal.get("overview") or "",
                     "latest_round": {
                         "date": deal.get("round_date") or as_of.isoformat(),
@@ -307,6 +308,7 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
                         "post_money_valuation_inr": _inr_cr_to_rupees(
                             deal.get("post_money_valuation_inr_cr"), config
                         ),
+                        "valuation_basis": deal.get("valuation_basis") or "reported",
                         "investors": deal.get("investors") if isinstance(deal.get("investors"), list) else [],
                     },
                     "signals": {},
