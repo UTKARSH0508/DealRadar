@@ -1,22 +1,22 @@
 {
   "target_country": "India",
-  "minimum_post_money_valuation_inr_cr": 0,
-  "maximum_post_money_valuation_inr_cr": 999999999,
+  "minimum_valuation_inr_cr": 50,
   "usd_to_inr": 83.0,
   "recent_round_days": 30,
-  "max_articles": 1,
+  "max_articles_per_source": 2,
   "article_text_chars": 4000,
   "nvidia_model": "meta/llama-3.3-70b-instruct",
   "nvidia_max_tokens": 1024,
   "nvidia_timeout_seconds": 180,
-  "gdelt_delay_seconds": 5,
-  "search_queries": [
-    "\"Series A\" India startup funding 2025",
-    "\"Series B\" India startup funding 2025",
-    "\"Series C\" OR \"Series D\" India startup funding",
-    "India startup raises crore valuation",
-    "India fintech \"growth round\" funding",
-    "India SaaS startup investment 2025"
+  "source_delay_seconds": 2,
+  "trusted_sources": [
+    {"name": "Inc42",             "rss": "https://inc42.com/feed/"},
+    {"name": "Entrackr",          "rss": "https://entrackr.com/feed/"},
+    {"name": "YourStory",         "rss": "https://yourstory.com/feed"},
+    {"name": "TechCrunch India",  "rss": "https://techcrunch.com/tag/india/feed/"},
+    {"name": "DealStreet Asia",   "rss": "https://www.dealstreetasia.com/feed/"},
+    {"name": "VCCircle",          "rss": "https://www.vccircle.com/feed/"},
+    {"name": "ET Startups",       "rss": "https://economictimes.indiatimes.com/small-biz/startups/newsfeed/rssfeeds/13357270.cms"}
   ],
   "preferred_rounds": [
     "Series A",

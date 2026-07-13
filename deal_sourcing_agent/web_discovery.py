@@ -5,8 +5,8 @@ import os
 import re
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import date
 from html.parser import HTMLParser
@@ -78,36 +78,46 @@ def _get_text(url: str, timeout: int = 30) -> str:
     return parser.text()
 
 
+def _parse_rss(url: str, timeout: int = 15) -> list[dict[str, str]]:
+    request = urllib.request.Request(url, headers={"User-Agent": "DailyDealRadar/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            raw = response.read().decode("utf-8", errors="replace")
+    except (urllib.error.URLError, TimeoutError) as e:
+        print(f"[DEBUG] Failed to fetch RSS {url}: {e}")
+        return []
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as e:
+        print(f"[DEBUG] Failed to parse RSS XML from {url}: {e}")
+        return []
+    items = []
+    for item in root.findall(".//item"):
+        link = (item.findtext("link") or "").strip()
+        title = (item.findtext("title") or "").strip()
+        pub_date = (item.findtext("pubDate") or "")[:10]
+        if link:
+            items.append({"title": title, "url": link, "published_at": pub_date})
+    return items
+
+
 def discover_articles(config: dict[str, Any]) -> list[Article]:
-    max_articles = int(config.get("max_articles", 20))
-    lookback_days = int(config["recent_round_days"])
+    max_per_source = int(config.get("max_articles_per_source", 2))
+    delay = float(config.get("source_delay_seconds", 2))
     seen_urls: set[str] = set()
     articles: list[Article] = []
 
-    print(f"[DEBUG] Starting article discovery: max_articles={max_articles}, lookback_days={lookback_days}")
-
-    gdelt_delay = float(config.get("gdelt_delay_seconds", 3))
-
-    for query in config.get("search_queries", []):
-        print(f"[DEBUG] Searching for articles with query: {query}")
-        params = {
-            "query": query,
-            "mode": "ArtList",
-            "format": "json",
-            "maxrecords": max_articles,
-            "sort": "DateDesc",
-            "timespan": f"{lookback_days}d",
-        }
-        url = "https://api.gdeltproject.org/api/v2/doc/doc?" + urllib.parse.urlencode(params)
-        try:
-            payload = _get_json(url)
-        except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as e:
-            print(f"[DEBUG] Error fetching articles for query '{query}': {e}")
-            continue
-
-        for item in payload.get("articles", []):
-            article_url = item.get("url")
-            if not article_url or article_url in seen_urls:
+    for source in config.get("trusted_sources", []):
+        name = source.get("name", "")
+        rss_url = source.get("rss", "")
+        print(f"[DEBUG] Fetching RSS: {name} ({rss_url})")
+        items = _parse_rss(rss_url)
+        count = 0
+        for item in items:
+            if count >= max_per_source:
+                break
+            article_url = item["url"]
+            if article_url in seen_urls:
                 continue
             seen_urls.add(article_url)
             try:
@@ -118,24 +128,19 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
             if len(text) < 500:
                 print(f"[DEBUG] Article too short ({len(text)} chars): {article_url}")
                 continue
-            articles.append(
-                Article(
-                    title=item.get("title", ""),
-                    url=article_url,
-                    published_at=str(item.get("seendate", ""))[:8],
-                    domain=item.get("domain", ""),
-                    text=text[: int(config.get("article_text_chars", 12000))],
-                )
-            )
-            print(f"[DEBUG] Added article: {item.get('title', 'Unknown')}")
-            if len(articles) >= max_articles:
-                print(f"[DEBUG] Reached max_articles limit ({max_articles})")
-                return articles
+            articles.append(Article(
+                title=item["title"],
+                url=article_url,
+                published_at=item["published_at"],
+                domain=name,
+                text=text[: int(config.get("article_text_chars", 4000))],
+            ))
+            count += 1
+            print(f"[DEBUG] Added article: {item['title'][:70]}")
+        if delay > 0:
+            time.sleep(delay)
 
-        if gdelt_delay > 0:
-            time.sleep(gdelt_delay)
-
-    print(f"[DEBUG] Article discovery complete: found {len(articles)} articles")
+    print(f"[DEBUG] Article discovery complete: {len(articles)} articles from {len(config.get('trusted_sources', []))} sources")
     return articles
 
 
@@ -257,14 +262,14 @@ def extract_deals_from_article(article: Article, config: dict[str, Any]) -> list
     system_prompt = """You extract Indian private-market funding deals for a growth fund.
 Use only the article text and metadata provided by the user.
 Return strict JSON with this schema:
-{"deals":[{"company_name":"","overview":"","country":"","sector":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"post_money_valuation_inr_cr":null,"valuation_basis":"reported","investors":[],"source_url":""}]}
-Use numbers only for deal_size_inr_cr and post_money_valuation_inr_cr (INR crore, e.g. 4150 not "500m").
-If amounts are only in USD millions, convert to INR crore (approx $1M USD = 8.3 INR cr).
-For post_money_valuation_inr_cr:
-- If the article explicitly states a post-money valuation, use it and set valuation_basis to "reported".
-- If no post-money valuation is stated but deal_size_inr_cr is clear, estimate it using conservative multiples (Seed: 3x, Series A: 5x, Series B: 6x, Series C+: 7x) and set valuation_basis to "estimated".
-- If neither valuation nor deal size is available, omit the deal entirely.
-Set sector to the best-matching category among: AI, Fintech, SaaS, Healthcare, Climate, Consumer, Logistics, or Other.
+{"deals":[{"company_name":"","overview":"","country":"","sector":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"pre_money_valuation_inr_cr":null,"post_money_valuation_inr_cr":null,"valuation_basis":"reported","investors":[],"source_url":""}]}
+Rules:
+- Use numbers only for monetary fields (INR crore). Convert USD millions to INR crore at $1M = 8.3 cr.
+- Set pre_money_valuation_inr_cr if the article states a pre-money valuation; set post_money_valuation_inr_cr if it states a post-money valuation. Set both if both are mentioned.
+- If neither pre- nor post-money valuation is stated but deal_size_inr_cr is clear, estimate post_money_valuation_inr_cr using conservative multiples (Seed: 3x, Series A: 5x, Series B: 6x, Series C+: 7x) and set valuation_basis to "estimated".
+- If no valuation or deal size can be found at all, omit the deal.
+- Set sector from: AI, Fintech, SaaS, Healthcare, Climate, Consumer, Logistics, Other.
+- Only include Indian private companies; skip public companies, government entities, and subsidiaries.
 If no qualifying deal is in the article, return {"deals":[]}."""
     user_prompt = f"""Article title: {article.title}
 Article URL: {article.url}
@@ -320,9 +325,8 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
                         "date": deal.get("round_date") or as_of.isoformat(),
                         "type": deal.get("round_type") or "Unknown",
                         "amount_inr": _inr_cr_to_rupees(deal.get("deal_size_inr_cr"), config),
-                        "post_money_valuation_inr": _inr_cr_to_rupees(
-                            deal.get("post_money_valuation_inr_cr"), config
-                        ),
+                        "pre_money_valuation_inr": _inr_cr_to_rupees(deal.get("pre_money_valuation_inr_cr"), config),
+                        "post_money_valuation_inr": _inr_cr_to_rupees(deal.get("post_money_valuation_inr_cr"), config),
                         "valuation_basis": deal.get("valuation_basis") or "reported",
                         "investors": deal.get("investors") if isinstance(deal.get("investors"), list) else [],
                     },

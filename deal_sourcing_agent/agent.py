@@ -62,19 +62,30 @@ def round_amount_inr_cr(company: dict[str, Any], config: dict[str, Any]) -> floa
     return money_to_inr_cr(round_info.get("amount_usd"), "USD", config)
 
 
-def post_money_valuation_inr_cr(company: dict[str, Any], config: dict[str, Any]) -> tuple[float | None, str]:
+def best_valuation_inr_cr(company: dict[str, Any], config: dict[str, Any]) -> tuple[float | None, str]:
+    """Return the best available valuation (post-money preferred, pre-money fallback)."""
     round_info = company.get("latest_round", {})
-    explicit_inr = round_info.get("post_money_valuation_inr")
-    if explicit_inr:
-        basis = round_info.get("valuation_basis", "reported")
-        label = "estimated post-money valuation" if basis == "estimated" else "reported post-money valuation"
-        return money_to_inr_cr(explicit_inr, "INR", config), label
+    basis = round_info.get("valuation_basis", "reported")
+    basis_label = "estimated" if basis == "estimated" else "reported"
 
-    explicit_usd = round_info.get("post_money_valuation_usd")
-    if explicit_usd:
-        return money_to_inr_cr(explicit_usd, "USD", config), "reported post-money valuation converted from USD"
+    post_inr = round_info.get("post_money_valuation_inr")
+    if post_inr:
+        return money_to_inr_cr(post_inr, "INR", config), f"{basis_label} post-money valuation"
 
-    return None, "missing reported post-money valuation"
+    pre_inr = round_info.get("pre_money_valuation_inr")
+    if pre_inr:
+        return money_to_inr_cr(pre_inr, "INR", config), f"{basis_label} pre-money valuation"
+
+    post_usd = round_info.get("post_money_valuation_usd")
+    if post_usd:
+        return money_to_inr_cr(post_usd, "USD", config), "reported post-money valuation (USD)"
+
+    return None, "missing valuation"
+
+
+# Keep old name as alias so nothing else breaks
+def post_money_valuation_inr_cr(company: dict[str, Any], config: dict[str, Any]) -> tuple[float | None, str]:
+    return best_valuation_inr_cr(company, config)
 
 
 def is_recent_round(company: dict[str, Any], as_of: date, days: int) -> bool:
@@ -99,10 +110,14 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
 
     valuation, basis = post_money_valuation_inr_cr(company, config)
     if valuation is None:
-        risks.append("reported post-money valuation is unavailable")
+        risks.append("valuation is unavailable")
         return False, reasons, risks, None, basis
 
-    reasons.append(f"reported post-money valuation: {format_inr_cr(valuation)}")
+    min_val = float(config.get("minimum_valuation_inr_cr", 0))
+    if valuation < min_val:
+        return False, reasons, risks, None, f"valuation {format_inr_cr(valuation)} below minimum {format_inr_cr(min_val)}"
+
+    reasons.append(f"{basis}: {format_inr_cr(valuation)}")
 
     round_type = company.get("latest_round", {}).get("type")
     if round_type in config["preferred_rounds"]:
@@ -174,15 +189,16 @@ def candidate_to_markdown(candidate: Candidate) -> str:
     sources = ", ".join(company.get("sources", [])) or "not provided"
 
     valuation_str = format_inr_cr(candidate.valuation_inr_cr)
-    if candidate.valuation_basis == "estimated post-money valuation":
+    if "estimated" in candidate.valuation_basis:
         valuation_str += " (est.)"
+    valuation_label = "Pre-money valuation" if "pre-money" in candidate.valuation_basis else "Post-money valuation"
 
     return f"""## {company['name']}
 
 **Overview:** {company.get('description') or 'No overview available.'}
 **Investors in round:** {investors}
 **Deal size:** {deal_size}
-**Post-money valuation:** {valuation_str}
+**{valuation_label}:** {valuation_str}
 **Source:** {sources}
 """
 
