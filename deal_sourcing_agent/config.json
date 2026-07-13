@@ -8,7 +8,7 @@
   "article_text_chars": 4000,
   "nvidia_model": "meta/llama-3.3-70b-instruct",
   "nvidia_max_tokens": 1024,
-  "nvidia_timeout_seconds": 120,
+  "nvidia_timeout_seconds": 180,
   "gdelt_delay_seconds": 5,
   "search_queries": [
     "\"Series A\" India startup funding 2025",

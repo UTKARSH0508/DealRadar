@@ -271,12 +271,23 @@ Article text:
 {article.text}
 """
     
-    # Add delay before calling NVIDIA API to respect rate limits
     print(f"[DEBUG] Waiting 2 seconds before NVIDIA API call...")
     time.sleep(2)
 
-    print(f"[DEBUG] Calling NVIDIA API...")
-    content = _nvidia_chat(system_prompt, user_prompt, config)
+    retries = 2
+    for attempt in range(1, retries + 1):
+        try:
+            print(f"[DEBUG] Calling NVIDIA API (attempt {attempt}/{retries})...")
+            content = _nvidia_chat(system_prompt, user_prompt, config)
+            break
+        except (TimeoutError, urllib.error.URLError, RuntimeError) as e:
+            print(f"[DEBUG] NVIDIA API error on attempt {attempt}: {e}")
+            if attempt < retries:
+                time.sleep(5 * attempt)
+            else:
+                print(f"[DEBUG] Skipping article after {retries} failed attempts: {article.title[:50]}")
+                return []
+
     parsed = _json_from_text(content)
     deals = parsed.get("deals", [])
     print(f"[DEBUG] Extracted {len(deals)} deals from article")
@@ -288,7 +299,7 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
     companies: list[dict[str, Any]] = []
     articles = discover_articles(config)
     print(f"[DEBUG] Processing {len(articles)} articles")
-    
+
     for i, article in enumerate(articles, 1):
         print(f"[DEBUG] Processing article {i}/{len(articles)}")
         for deal in extract_deals_from_article(article, config):
