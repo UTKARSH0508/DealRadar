@@ -244,7 +244,11 @@ def _json_from_text(text: str) -> dict[str, Any]:
         match = re.search(r"\{.*\}", text, flags=re.DOTALL)
         if not match:
             return {"deals": []}
-        return json.loads(match.group(0))
+        try:
+            return json.loads(match.group(0))
+        except json.JSONDecodeError:
+            print(f"[DEBUG] Could not parse LLM JSON response, returning empty deals")
+            return {"deals": []}
 
 
 def extract_deals_from_article(article: Article, config: dict[str, Any]) -> list[dict[str, Any]]:

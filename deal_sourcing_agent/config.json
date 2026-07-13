@@ -4,7 +4,7 @@
   "maximum_post_money_valuation_inr_cr": 999999999,
   "usd_to_inr": 83.0,
   "recent_round_days": 30,
-  "max_articles": 10,
+  "max_articles": 1,
   "article_text_chars": 4000,
   "nvidia_model": "meta/llama-3.3-70b-instruct",
   "nvidia_max_tokens": 1024,
