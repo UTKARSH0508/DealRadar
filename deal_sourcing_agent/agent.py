@@ -97,21 +97,12 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
     reasons: list[str] = []
     risks: list[str] = []
 
-    if company.get("country") != config["target_country"]:
-        return False, reasons, risks, None, "wrong country"
-
-    ownership = str(company.get("ownership_status", "")).lower()
-    if ownership in config["excluded_ownership"]:
-        return False, reasons, risks, None, "excluded ownership status"
-
     if not is_recent_round(company, as_of, int(config["recent_round_days"])):
         return False, reasons, risks, None, "round is not recent"
-    reasons.append("latest round is recent")
 
     valuation, basis = post_money_valuation_inr_cr(company, config)
     if valuation is None:
-        risks.append("valuation is unavailable")
-        return False, reasons, risks, None, basis
+        return False, reasons, risks, None, "valuation unavailable"
 
     min_val = float(config.get("minimum_valuation_inr_cr", 0))
     if valuation < min_val:
@@ -121,9 +112,9 @@ def qualifies(company: dict[str, Any], config: dict[str, Any], as_of: date) -> t
 
     round_type = company.get("latest_round", {}).get("type")
     if round_type in config["preferred_rounds"]:
-        reasons.append(f"round type fits growth mandate: {round_type}")
+        reasons.append(f"round type: {round_type}")
     else:
-        risks.append(f"round type is less aligned with growth mandate: {round_type}")
+        risks.append(f"round type less aligned: {round_type}")
 
     return True, reasons, risks, valuation, basis
 

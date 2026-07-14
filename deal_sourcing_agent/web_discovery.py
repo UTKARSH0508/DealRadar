@@ -259,18 +259,15 @@ def _json_from_text(text: str) -> dict[str, Any]:
 def extract_deals_from_article(article: Article, config: dict[str, Any]) -> list[dict[str, Any]]:
     print(f"[DEBUG] Extracting deals from article: {article.title[:50]}...")
     
-    system_prompt = """You extract Indian private-market funding deals for a growth fund.
-Use only the article text and metadata provided by the user.
-Return strict JSON with this schema:
-{"deals":[{"company_name":"","overview":"","country":"","sector":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"pre_money_valuation_inr_cr":null,"post_money_valuation_inr_cr":null,"valuation_basis":"reported","investors":[],"source_url":""}]}
+    system_prompt = """Extract funding deals from the article. Return strict JSON:
+{"deals":[{"company_name":"","overview":"","sector":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"pre_money_valuation_inr_cr":null,"post_money_valuation_inr_cr":null,"valuation_basis":"reported","investors":[],"source_url":""}]}
 Rules:
-- Use numbers only for monetary fields (INR crore). Convert USD millions to INR crore at $1M = 8.3 cr.
-- Set pre_money_valuation_inr_cr if the article states a pre-money valuation; set post_money_valuation_inr_cr if it states a post-money valuation. Set both if both are mentioned.
-- If neither pre- nor post-money valuation is stated but deal_size_inr_cr is clear, estimate post_money_valuation_inr_cr using conservative multiples (Seed: 3x, Series A: 5x, Series B: 6x, Series C+: 7x) and set valuation_basis to "estimated".
-- If no valuation or deal size can be found at all, omit the deal.
+- Monetary fields are INR crore (numbers only). Convert USD: $1M = 8.3 cr.
+- Set pre_money_valuation_inr_cr or post_money_valuation_inr_cr (or both) from whatever the article states.
+- If no valuation is stated but deal_size_inr_cr is known, estimate post_money using: Seed 3x, Series A 5x, Series B 6x, Series C+ 7x — set valuation_basis to "estimated".
+- If no valuation and no deal size, omit the deal.
 - Set sector from: AI, Fintech, SaaS, Healthcare, Climate, Consumer, Logistics, Other.
-- Only include Indian private companies; skip public companies, government entities, and subsidiaries.
-If no qualifying deal is in the article, return {"deals":[]}."""
+If the article contains no funding deals, return {"deals":[]}."""
     user_prompt = f"""Article title: {article.title}
 Article URL: {article.url}
 Seen date: {article.published_at}
@@ -315,10 +312,6 @@ def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, A
             companies.append(
                 {
                     "name": deal.get("company_name") or "Unknown company",
-                    "website": "",
-                    "country": deal.get("country") or "India",
-                    "city": "",
-                    "ownership_status": "private",
                     "sector": deal.get("sector") or "Unknown",
                     "description": deal.get("overview") or "",
                     "latest_round": {
