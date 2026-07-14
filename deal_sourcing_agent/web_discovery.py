@@ -8,7 +8,8 @@ import urllib.error
 import urllib.request
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
+from email.utils import parsedate_tz, mktime_tz
 from html.parser import HTMLParser
 from typing import Any
 
@@ -78,7 +79,24 @@ def _get_text(url: str, timeout: int = 30) -> str:
     return parser.text()
 
 
-def _parse_rss(url: str, timeout: int = 15) -> list[dict[str, str]]:
+def _parse_pub_date(raw: str) -> date | None:
+    """Parse RSS pubDate (RFC 2822) or ISO date string into a date object."""
+    if not raw:
+        return None
+    try:
+        parsed = parsedate_tz(raw)
+        if parsed:
+            import datetime as _dt
+            return _dt.date.fromtimestamp(mktime_tz(parsed))
+    except Exception:
+        pass
+    try:
+        return date.fromisoformat(raw[:10])
+    except Exception:
+        return None
+
+
+def _parse_rss(url: str, timeout: int = 15) -> list[dict]:
     request = urllib.request.Request(url, headers={"User-Agent": "DailyDealRadar/1.0"})
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
@@ -95,27 +113,30 @@ def _parse_rss(url: str, timeout: int = 15) -> list[dict[str, str]]:
     for item in root.findall(".//item"):
         link = (item.findtext("link") or "").strip()
         title = (item.findtext("title") or "").strip()
-        pub_date = (item.findtext("pubDate") or "")[:10]
+        pub_date = _parse_pub_date(item.findtext("pubDate") or "")
         if link:
-            items.append({"title": title, "url": link, "published_at": pub_date})
+            items.append({"title": title, "url": link, "pub_date": pub_date})
     return items
 
 
-def discover_articles(config: dict[str, Any]) -> list[Article]:
-    max_per_source = int(config.get("max_articles_per_source", 2))
-    delay = float(config.get("source_delay_seconds", 2))
+def discover_articles(config: dict[str, Any], as_of: date) -> list[Article]:
+    lookback_days = int(config["recent_round_days"])
+    cutoff = as_of - timedelta(days=lookback_days)
     seen_urls: set[str] = set()
     articles: list[Article] = []
 
     for source in config.get("trusted_sources", []):
         name = source.get("name", "")
         rss_url = source.get("rss", "")
-        print(f"[DEBUG] Fetching RSS: {name} ({rss_url})")
+        print(f"[DEBUG] Fetching RSS: {name}")
         items = _parse_rss(rss_url)
-        count = 0
+        source_count = 0
         for item in items:
-            if count >= max_per_source:
-                break
+            pub_date = item["pub_date"]
+            # Skip if article is older than the lookback window
+            if pub_date and pub_date < cutoff:
+                print(f"[DEBUG] Skipping old article ({pub_date}): {item['title'][:60]}")
+                continue
             article_url = item["url"]
             if article_url in seen_urls:
                 continue
@@ -126,21 +147,19 @@ def discover_articles(config: dict[str, Any]) -> list[Article]:
                 print(f"[DEBUG] Error fetching text from {article_url}: {e}")
                 continue
             if len(text) < 500:
-                print(f"[DEBUG] Article too short ({len(text)} chars): {article_url}")
                 continue
             articles.append(Article(
                 title=item["title"],
                 url=article_url,
-                published_at=item["published_at"],
+                published_at=pub_date.isoformat() if pub_date else as_of.isoformat(),
                 domain=name,
                 text=text[: int(config.get("article_text_chars", 4000))],
             ))
-            count += 1
-            print(f"[DEBUG] Added article: {item['title'][:70]}")
-        if delay > 0:
-            time.sleep(delay)
+            source_count += 1
+            print(f"[DEBUG] Added article ({pub_date}): {item['title'][:70]}")
+        print(f"[DEBUG] {name}: {source_count} articles in window")
 
-    print(f"[DEBUG] Article discovery complete: {len(articles)} articles from {len(config.get('trusted_sources', []))} sources")
+    print(f"[DEBUG] Total: {len(articles)} articles from {len(config.get('trusted_sources', []))} sources")
     return articles
 
 
@@ -315,7 +334,7 @@ Article text:
 def fetch_web_companies(config: dict[str, Any], as_of: date) -> list[dict[str, Any]]:
     print(f"[DEBUG] Starting fetch_web_companies")
     companies: list[dict[str, Any]] = []
-    articles = discover_articles(config)
+    articles = discover_articles(config, as_of)
     print(f"[DEBUG] Processing {len(articles)} articles")
 
     for i, article in enumerate(articles, 1):
