@@ -256,9 +256,24 @@ def _json_from_text(text: str) -> dict[str, Any]:
             return {"deals": []}
 
 
+_FUNDING_KEYWORDS = {
+    "raises", "raised", "funding", "investment", "valuation", "crore", "million",
+    "billion", "series a", "series b", "series c", "series d", "series e",
+    "seed round", "growth round", "pre-seed", "round", "backed", "investors",
+}
+
+def _has_funding_signal(article: Article) -> bool:
+    text_lower = (article.title + " " + article.text).lower()
+    return sum(1 for kw in _FUNDING_KEYWORDS if kw in text_lower) >= 2
+
+
 def extract_deals_from_article(article: Article, config: dict[str, Any]) -> list[dict[str, Any]]:
-    print(f"[DEBUG] Extracting deals from article: {article.title[:50]}...")
-    
+    if not _has_funding_signal(article):
+        print(f"[DEBUG] Skipping (no funding signal): {article.title[:70]}")
+        return []
+
+    print(f"[DEBUG] Extracting deals from article: {article.title[:70]}...")
+
     system_prompt = """Extract funding deals from the article. Return strict JSON:
 {"deals":[{"company_name":"","overview":"","sector":"","round_date":"YYYY-MM-DD or empty","round_type":"","deal_size_inr_cr":null,"pre_money_valuation_inr_cr":null,"post_money_valuation_inr_cr":null,"valuation_basis":"reported","investors":[],"source_url":""}]}
 Rules:
@@ -277,9 +292,6 @@ Article text:
 {article.text}
 """
     
-    print(f"[DEBUG] Waiting 2 seconds before NVIDIA API call...")
-    time.sleep(2)
-
     retries = 2
     for attempt in range(1, retries + 1):
         try:

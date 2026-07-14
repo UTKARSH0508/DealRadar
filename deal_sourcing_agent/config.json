@@ -8,7 +8,7 @@
   "nvidia_model": "meta/llama-3.3-70b-instruct",
   "nvidia_max_tokens": 1024,
   "nvidia_timeout_seconds": 180,
-  "source_delay_seconds": 2,
+  "source_delay_seconds": 0,
   "trusted_sources": [
     {"name": "Inc42",             "rss": "https://inc42.com/feed/"},
     {"name": "Entrackr",          "rss": "https://entrackr.com/feed/"},
