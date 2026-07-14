@@ -264,36 +264,33 @@ def main() -> None:
     seen = load_seen_deals(args.seen_file)
     new_candidates = candidates if args.ignore_seen else filter_new_candidates(candidates, seen, config)
     
-    # Limit to top 5 companies
-    top_5_candidates = new_candidates[:5]
-
     body = [
-        "# Daily Deal Radar",
+        "# Weekly Deal Radar",
         "",
         f"As of: {as_of.isoformat()}",
-        f"Screen: private Indian companies with funding in the past {config['recent_round_days']} days",
+        f"Screen: Indian companies with funding in the past {config['recent_round_days']} days, valuation ≥ INR {config.get('minimum_valuation_inr_cr', 0)} cr",
         "",
     ]
-    if not top_5_candidates:
+    if not new_candidates:
         body.append("No new deals found.")
     else:
-        body.append(f"Top {len(top_5_candidates)} deals:")
+        body.append(f"{len(new_candidates)} deal(s):")
         body.append("")
-        body.extend(candidate_to_markdown(candidate) for candidate in top_5_candidates)
+        body.extend(candidate_to_markdown(candidate) for candidate in new_candidates)
 
     report = "\n".join(body)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(report, encoding="utf-8")
-    if top_5_candidates and not args.ignore_seen:
-        seen.update(deal_key(candidate, config) for candidate in top_5_candidates)
+    if new_candidates and not args.ignore_seen:
+        seen.update(deal_key(candidate, config) for candidate in new_candidates)
     if not args.ignore_seen:
         save_seen_deals(args.seen_file, seen)
-    print(f"Wrote {args.output} with {len(top_5_candidates)} new candidates")
+    print(f"Wrote {args.output} with {len(new_candidates)} new candidates")
 
     if args.email:
         if not args.email_to:
             raise RuntimeError("Email delivery requested, but no recipient was provided. Set DEAL_AGENT_EMAIL_TO or pass --email-to.")
-        subject = f"Daily Deal Radar: {len(top_5_candidates)} new deals - {as_of.isoformat()}"
+        subject = f"Weekly Deal Radar: {len(new_candidates)} new deals - {as_of.isoformat()}"
         send_email(subject, report, args.email_to, args.output)
         print(f"Sent email report to {args.email_to}")
 
